@@ -1,6 +1,6 @@
 # ClaudeSkin
 
-Live themes for the Claude desktop app. 🐟 **Koi pond**: koi swim under glass panels, follow your cursor, and scatter when you click. 🍁 **Autumn koi**: the koi pond in autumn, Japanese maple and ginkgo leaves drift down, land with a ripple and get nudged by the koi; click for a gust. 🖌️ **Sumi**: ink-wash landscape with a drifting sampan, swaying trees and birds; click to send a flock flying, bamboo grows while Claude is answering. Every launch gets a new random school of koi. 🏺 **Earth**: warm earth tones with liquid glass. ✳️ **Attention**: warm paper, drifting words in many languages; threads follow your cursor, click a word to bloom related words, and a spark wakes up while Claude is answering. Optional **chat words** (Ctrl+Alt+W, off by default): the floating words come from the current conversation instead, extracted locally in memory, nothing sent anywhere.
+Live themes for the Claude desktop app. 🐟 **Koi pond**: koi swim under glass panels, follow your cursor, and scatter when you click. 🍁 **Autumn koi**: the koi pond in autumn, Japanese maple and ginkgo leaves drift down, land with a ripple and get nudged by the koi; click for a gust. 🖌️ **Sumi**: ink-wash landscape with a drifting sampan, swaying trees and birds; click to send a flock flying, bamboo grows while Claude is answering. Every launch gets a new random school of koi, with a rare gradient or rainbow koi now and then. 🔶 **Motion**: flat motion-graphic loops (coral, cobalt, mustard) around the edges; a wipe when you send, a dot train while Claude answers, a bounce finale when it is done, a burst on click. 💅 **Slay**: kinetic typography, words pop, slide, echo, punch and flip in the corners, tickers top and bottom, COOKING while answering, an ATE. stamp when done. 🛰️ **Cyber**: light sci-fi HUD in Futura, reticle, radar, oscilloscope, hex streams; uplink beam on send, NEURAL LINK ACTIVE while answering, target lock on click. 🏺 **Earth**: warm earth tones with liquid glass. ✳️ **Attention**: warm paper, drifting words in many languages; threads follow your cursor, click a word to bloom related words, and a spark wakes up while Claude is answering. Optional **chat words** (Ctrl+Alt+W, off by default): the floating words come from the current conversation instead, extracted locally in memory, nothing sent anywhere.
 
 ![koi pond](preview-koi.png)
 
@@ -16,12 +16,12 @@ Your Claude reads the code first, then guides you through the one step you do by
 
 1. Node.js 22+. Claude set to **light** appearance.
 2. In Claude: **Developer → Enable Main Process Debugger**.
-3. Run `ClaudeSkin.bat` (koi) or `ClaudeSkin-earth.bat` (earth) or `ClaudeSkin-attention.bat` (attention), `ClaudeSkin-autumn.bat`, `ClaudeSkin-sumi.bat`, or `node inject.mjs koi`.
+3. Run `ClaudeSkin.bat` (koi) or `ClaudeSkin-earth.bat` (earth) or `ClaudeSkin-attention.bat` (attention), `ClaudeSkin-autumn.bat`, `ClaudeSkin-sumi.bat`, `ClaudeSkin-motion.bat`, `ClaudeSkin-slay.bat`, `ClaudeSkin-cyber.bat`, or `node inject.mjs koi`.
 4. **Turn the debugger off again.** The theme keeps running.
 
 **Ctrl+Alt+G** turns the theme on/off. **Ctrl+Alt+↑ / ↓** makes the glass more or less see-through (koi). `ClaudeSkin-off.bat`, or restarting Claude, removes it completely.
 
-**Auto-apply on every start** (only if you keep the Main Process Debugger on): run `ClaudeSkin-autostart.bat [koi|earth|attention|autumn|sumi|auto]` once. A hidden watcher re-applies the theme whenever Claude starts. `auto` = koi from 06:00 to 18:00, autumn koi from 18:00 to 06:00, switching live. Undo with `ClaudeSkin-autostart-off.bat`.
+**Auto-apply on every start** (only if you keep the Main Process Debugger on): run `ClaudeSkin-autostart.bat [koi|earth|attention|autumn|sumi|motion|slay|cyber|auto]` once. A hidden watcher re-applies the theme whenever Claude starts. `auto` = koi from 06:00 to 18:00, autumn koi from 18:00 to 06:00, switching live. Undo with `ClaudeSkin-autostart-off.bat`.
 
 ## Is it safe?
 
@@ -45,7 +45,7 @@ Theme động cho app Claude desktop: hồ cá koi bơi dưới lớp kính, cá
 
 **Ctrl+Alt+G** để bật/tắt theme. **Ctrl+Alt+↑ / ↓** để kính đục hơn hoặc trong hơn (theme koi). Muốn gỡ thì chạy `ClaudeSkin-off.bat` hoặc khởi động lại Claude.
 
-**Tự nạp mỗi lần mở app** (chỉ khi để Debugger bật sẵn): chạy `ClaudeSkin-autostart.bat [koi|earth|attention|autumn|sumi|auto]` một lần. Một tiến trình chạy ẩn sẽ nạp lại theme mỗi khi Claude khởi động. `auto` = koi từ 6h đến 18h, koi mùa thu từ 18h đến 6h, tự đổi khi tới giờ. Gỡ bằng `ClaudeSkin-autostart-off.bat`.
+**Tự nạp mỗi lần mở app** (chỉ khi để Debugger bật sẵn): chạy `ClaudeSkin-autostart.bat [koi|earth|attention|autumn|sumi|motion|slay|cyber|auto]` một lần. Một tiến trình chạy ẩn sẽ nạp lại theme mỗi khi Claude khởi động. `auto` = koi từ 6h đến 18h, koi mùa thu từ 18h đến 6h, tự đổi khi tới giờ. Gỡ bằng `ClaudeSkin-autostart-off.bat`.
 
 ⚠️ Khi debugger đang bật, mọi chương trình trên máy đều điều khiển được app Claude, nên chỉ bật đúng lúc cài theme. Đây là bản không chính thức, app update có thể làm hỏng theme; khởi động lại Claude là về như cũ.
 
