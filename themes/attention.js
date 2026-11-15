@@ -1,7 +1,9 @@
 // ClaudeSkin theme "Attention": warm paper, drifting word fragments (many languages, code, math),
 // attention threads to the cursor, click = a word blooms into related words, and a hand-drawn
 // spark that wakes up while Claude is answering (detected by the Stop button being present).
-// Pure local code: no network, no storage, no images, never reads message content.
+// Optional "chat words" (Ctrl+Alt+W, OFF by default): keywords come from the visible conversation text,
+// processed in memory only. Pure local code: no network, no images; the only thing stored is the
+// on/off switch (localStorage 'claudeSkinChatWords'). With chat words off, message text is never read.
 (() => {
   if (window.top !== window) return;
   if (typeof window.__claudeSkinCleanup === 'function') window.__claudeSkinCleanup();
@@ -109,7 +111,54 @@
     'nhạc': ['music', 'nhịp', '♪', 'hát'],
   };
   const KEYS = Object.keys(VOCAB);
-  const isCode = (t) => /^[{}\[\]()=<>λ∑∫∂π∞→⇒∴✓…!?♪/]|^(function|return|const|map|fold|type|f\(x\)|=>|commit|diff|push|git|token)$/.test(t);
+  const isCode = (t) => /^[{}\[\]()=<>λ∑∫∂π∞→⇒∴✓…!?♪/]|^(function|return|const|map|fold|type|f\(x\)|=>|commit|diff|push|git|token)$/.test(t) || /[_.$]|[a-z][A-Z]|\(\)$/.test(t);
+
+  // ---- chat words: keywords of the visible conversation (local, in memory) --
+  const STOP = new Set(`the and for are but not you your with this that have from they will would there their what when which about into than then them these those been being were was has had its can could should just like also only more most some such very over under after before while where here how why who our out use using used get got make made need want let yes okay one two all any each other same own too now new old way thing things don't doesn't didn't i'm you're it's that's we're there's i've i'll does did
+là của và có không thì mà được cho này đó với các những một em anh nó mình tôi bạn đi rồi nhé nha ạ ơi cái thế vậy nào gì sao khi nếu lại ra vào lên xuống đã đang sẽ cũng vẫn còn chỉ rất quá hơn nhất nhiều ít như để từ trong ngoài trên dưới sau trước theo bằng về hay hoặc nhưng nên vì do bị ở đây kia ấy giờ lúc thử làm xem đều luôn thêm chưa phải cần muốn biết thấy nói hỏi bao thôi chứ đấy nữa mới cả hết ừ người việc cách kiểu chỗ lần khác cùng đúng tự`.split(/\s+/));
+  const nonAscii = (s) => /[^\x00-\x7f]/.test(s);
+  function chatEls() {
+    return [...document.querySelectorAll('[data-cds$="Message"]')].filter((e) => !e.parentElement?.closest('[data-cds$="Message"]'));
+  }
+  function toks(s) {
+    const raw = s.toLowerCase().match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{2,8}|[\p{L}\p{N}_'.-]+/gu) || [];
+    return raw.map((t) => {
+      t = t.replace(/^[.'_-]+|[.'_-]+$/g, '');
+      return t && !/^\d+$/.test(t) && t.length <= 18 && !STOP.has(t) && (nonAscii(t) ? t.length >= 2 : t.length >= 3) ? t : null;
+    });
+  }
+  function extract() {   // -> { list: [{text, k}], rel: {word: [co-occurring words]} } or null
+    const msgs = chatEls().slice(-40).map((e) => (e.innerText || '').slice(0, 4000));
+    if (!msgs.length) return null;
+    const score = new Map(), per = [];
+    msgs.forEach((m, i) => {
+      const wgt = 0.5 + (i + 1) / msgs.length, t = toks(m), seen = new Set();   // recent messages weigh more
+      for (let k = 0; k < t.length; k++) {
+        if (!t[k]) continue;
+        seen.add(t[k]); score.set(t[k], (score.get(t[k]) || 0) + wgt);
+        const nx = t[k + 1];
+        if (nx && nonAscii(t[k] + nx)) { const bg = t[k] + ' ' + nx; seen.add(bg); score.set(bg, (score.get(bg) || 0) + wgt * 1.4); }   // VN compounds: "hồ cá"
+      }
+      per.push(seen);
+    });
+    const cand = [...score].filter(([w, s]) => s >= (w.includes(' ') ? 2.5 : 1.5)).sort((a, b) => b[1] - a[1]);
+    const pick = [];
+    for (const [w, s] of cand) {
+      if (pick.length >= (W * H > 1.6e6 ? 44 : 36)) break;
+      if (pick.some((p) => p.w.includes(' ') && p.w.split(' ').includes(w) && p.s > s * 0.6)) continue;
+      if (w.includes(' ') && pick.some((p) => p.w.includes(' ') && w.split(' ').some((x) => p.w.split(' ').includes(x)))) continue;   // "mặc định" blocks "định tắt"
+      pick.push({ w, s });
+    }
+    if (pick.length < 8) return null;
+    const top = pick.map((p) => p.w), df = new Map(top.map((w) => [w, per.filter((s) => s.has(w)).length]));
+    const rel = {};
+    for (const a of top) {
+      const c = new Map();
+      for (const seen of per) if (seen.has(a)) for (const b of top) if (b !== a && seen.has(b)) c.set(b, (c.get(b) || 0) + 1);
+      rel[a] = [...c].map(([b, n]) => [b, n / Math.sqrt(df.get(b))]).sort((x, y) => y[1] - x[1]).slice(0, 4).map((x) => x[0]);
+    }
+    return { list: pick.map((p) => ({ text: p.w, size: 14 + 12 * (p.s / pick[0].s) })), rel };
+  }
 
   // ---- helpers -------------------------------------------------------------
   const TAU = Math.PI * 2;
@@ -165,17 +214,43 @@
   }
 
   // ---- words ---------------------------------------------------------------
-  function makeWord(text) {
-    return { text, size: rnd(15, 26), x: Math.random() * W, y: Math.random() * H,
-      vx: rnd(-1, 1), vy: rnd(-1, 1), sp: rnd(5, 12), ph: rnd(0, TAU), base: rnd(0.22, 0.4), hi: 0 };
+  function makeWord(text, size) {
+    const a = rnd(0, TAU);
+    return { text, size: size || rnd(15, 26), x: Math.random() * W, y: Math.random() * H,
+      vx: Math.cos(a), vy: Math.sin(a), sp: rnd(5, 12), ph: rnd(0, TAU), base: rnd(0.22, 0.4), hi: 0, vis: 0, dying: false };
   }
-  function makeWords() {
-    words.length = 0;
-    const count = W * H > 1.6e6 ? 44 : 36;
+  function defaultList() {
     const pool = [...KEYS];
     for (const k of KEYS) pool.push(VOCAB[k][(Math.random() * 4) | 0]);
-    for (let i = 0; i < count; i++) words.push(makeWord(pool[i % pool.length]));
-    for (const w of words) { const d = Math.hypot(w.vx, w.vy) || 1; w.vx /= d; w.vy /= d; }
+    return [...new Set(pool)].slice(0, W * H > 1.6e6 ? 44 : 36).map((text) => ({ text }));
+  }
+  function setWords(list) {   // keep words still wanted, fade out the rest, fade in new ones
+    const want = new Map(list.map((x) => [x.text, x]));
+    for (const w of words) {
+      const x = want.get(w.text);
+      if (x) { w.dying = false; if (x.size) w.size = x.size; want.delete(w.text); } else w.dying = true;
+    }
+    for (const x of want.values()) words.push(makeWord(x.text, x.size));
+  }
+
+  let chatOn = !!window.__claudeSkinChatDefault, chatSig = '', chatRel = null, chatTimer = 0, chatT = -1e9;
+  try { const v = localStorage.getItem('claudeSkinChatWords'); if (v !== null) chatOn = v === '1'; else if (chatOn) localStorage.setItem('claudeSkinChatWords', '1'); } catch {}
+  function refreshChat(force) {
+    if (!chatOn) return;
+    const els = chatEls(), lastEl = els[els.length - 1];
+    const sig = location.href + '|' + els.length + '|' + (lastEl ? lastEl.innerText.length : 0);
+    if (!force && sig === chatSig) return;
+    if (!force && busyTarget && T - chatT < 8) return;   // while answering: at most every 8 s
+    chatSig = sig; chatT = T;
+    const r = extract();
+    chatRel = r ? r.rel : null;
+    setWords(r ? r.list : defaultList());
+  }
+  function setChat(on) {
+    chatOn = on; chatSig = '';
+    try { localStorage.setItem('claudeSkinChatWords', on ? '1' : '0'); } catch {}
+    if (on) refreshChat(true); else { chatRel = null; setWords(defaultList()); }
+    toast(on ? 'Words: from this chat' : 'Words: default');
   }
 
   function makeRays() {
@@ -200,7 +275,9 @@
       const d = near ? Math.hypot(w.x - ptr.x, w.y - ptr.y) : 1e9;
       const tgt = d < 300 ? Math.pow(1 - d / 300, 1.5) : 0;
       w.hi += (tgt - w.hi) * Math.min(1, dt * 5);
+      w.vis += ((w.dying ? 0 : 1) - w.vis) * Math.min(1, dt * 0.9);
     }
+    for (let i = words.length - 1; i >= 0; i--) if (words[i].dying && words[i].vis < 0.02) words.splice(i, 1);
     for (const b of blooms) b.t += dt;
     while (blooms.length && blooms[0].t > blooms[0].life) blooms.shift();
     for (const p of pulses) p.t += dt;
@@ -251,7 +328,7 @@
     const LINK = 170;
     for (let i = 0; i < words.length; i++) for (let j = i + 1; j < words.length; j++) {
       const a = words[i], b = words[j], d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (d < LINK) thread(a.x, a.y, b.x, b.y, (1 - d / LINK) * (0.14 + 0.16 * busy), 1, `rgb(${INK})`);
+      if (d < LINK) thread(a.x, a.y, b.x, b.y, (1 - d / LINK) * (0.14 + 0.16 * busy) * Math.min(a.vis, b.vis), 1, `rgb(${INK})`);
     }
     // attention: cursor -> words, and between attended words
     const fade = clamp(1 - (T - ptr.t - 1.5) / 1.5, 0, 1);
@@ -276,7 +353,7 @@
     // words
     for (const w of words) {
       const s = sprite(w.text, w.size), sc = 1 + w.hi * 0.18;
-      g.globalAlpha = clamp(w.base + w.hi * 0.55 + busy * 0.08, 0, 0.92);
+      g.globalAlpha = clamp(w.base + w.hi * 0.55 + busy * 0.08, 0, 0.92) * w.vis;
       g.drawImage(s.c, w.x - (s.w * sc) / 2, w.y - (s.h * sc) / 2, s.w * sc, s.h * sc);
     }
     // blooms (click): word -> related words
@@ -317,7 +394,8 @@
     for (const w of words) { const d = Math.hypot(w.x - x, w.y - y); if (d < bd) { bd = d; src = w; } }
     if (!src) return;
     if (blooms.length >= 4) blooms.shift();
-    const rel = VOCAB[src.text] || VOCAB[KEYS[(Math.random() * KEYS.length) | 0]];
+    const rel = (chatRel && chatRel[src.text] && chatRel[src.text].length ? chatRel[src.text] : null)
+      || VOCAB[src.text] || VOCAB[KEYS[(Math.random() * KEYS.length) | 0]];
     const a0 = rnd(0, TAU);
     blooms.push({ src, t: 0, life: 4.5,
       kids: rel.map((text, i) => ({ text, a: a0 + (i / rel.length) * TAU + rnd(-0.25, 0.25), d: rnd(70, 110), size: rnd(15, 19) })) });
@@ -356,7 +434,9 @@
     document.body.prepend(backdrop);
     g = cv.getContext('2d', { alpha: false });
     resize();
-    makeWords(); makeRays();
+    makeRays();
+    if (chatOn) refreshChat(true); else setWords(defaultList());
+    chatTimer = setInterval(() => refreshChat(false), 3000);
     clearUnder(); clearTimer = setInterval(clearUnder, 2000);
     pollBusy(); busyTimer = setInterval(pollBusy, 400);
     addEventListener('pointermove', onMove, { passive: true });
@@ -368,19 +448,27 @@
       for (let i = 0; i < n; i++) { T += 1 / 30; update(1 / 30); } draw(); return cv.toDataURL('image/png');
     };
     window.__claudeSkinBusy = () => ({ busyTarget, busy: +busy.toFixed(2), match: document.querySelector(BUSY_SEL)?.outerHTML.slice(0, 160) || null });
+    window.__claudeSkinWords = () => ({ chatOn, msgs: chatEls().length, words: words.filter((w) => !w.dying).map((w) => w.text),
+      rel: chatRel ? Object.entries(chatRel).slice(0, 6) : null });
     window.__claudeSkinState = 'on';
   }
 
-  let glassA = 0.5, toastT = 0;
+  let toastT = 0;
+  function toast(msg) {
+    let t = document.getElementById('cs-toast');
+    if (!t) { t = document.createElement('div'); t.id = 'cs-toast'; document.body.appendChild(t); }
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1300);
+  }
+
+  let glassA = 0.5;
   function setGlass(a) {   // Ctrl+Alt+Up/Down: glass opacity 20%..90% (session only)
     glassA = Math.round(clamp(a, 0.2, 0.9) * 10) / 10;
     document.documentElement.style.setProperty('--cs-a', String(glassA));
-    let t = document.getElementById('cs-toast');
-    if (!t) { t = document.createElement('div'); t.id = 'cs-toast'; document.body.appendChild(t); }
-    t.textContent = `Glass ${Math.round(glassA * 100)}%`; t.classList.add('show');
-    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1100);
+    toast(`Glass ${Math.round(glassA * 100)}%`);
   }
-  const onKey = (e) => {   // Ctrl+Alt+G: theme on/off
+  const onKey = (e) => {   // Ctrl+Alt+G: theme on/off, Ctrl+Alt+W: chat words on/off
+    if (e.ctrlKey && e.altKey && e.code === 'KeyW' && styleEl && !styleEl.disabled) { e.preventDefault(); setChat(!chatOn); return; }
     if (e.ctrlKey && e.altKey && (e.code === 'ArrowUp' || e.code === 'ArrowDown') && styleEl && !styleEl.disabled) {
       e.preventDefault(); setGlass(glassA + (e.code === 'ArrowUp' ? 0.1 : -0.1)); return;
     }
@@ -394,11 +482,11 @@
   window.__claudeSkinCleanup = () => {
     removeEventListener('keydown', onKey, true);
     removeEventListener('pointermove', onMove); removeEventListener('pointerdown', onDown); removeEventListener('resize', resize);
-    clearInterval(clearTimer); clearInterval(busyTimer); stop(); clearTimeout(toastT); document.documentElement.style.removeProperty('--cs-a');
+    clearInterval(clearTimer); clearInterval(busyTimer); clearInterval(chatTimer); stop(); clearTimeout(toastT); document.documentElement.style.removeProperty('--cs-a');
     for (const el of document.querySelectorAll('[id^="cs-"]')) el.remove();
     for (const el of document.querySelectorAll('[data-cs-clear]')) el.removeAttribute('data-cs-clear');
     window.__claudeSkin = false; window.__claudeSkinState = 'off';
-    delete window.__claudeSkinStep; delete window.__claudeSkinBusy;
+    delete window.__claudeSkinStep; delete window.__claudeSkinBusy; delete window.__claudeSkinWords;
   };
 
   if (document.body) mount();

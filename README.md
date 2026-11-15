@@ -1,6 +1,6 @@
 # ClaudeSkin
 
-Live themes for the Claude desktop app. 🐟 **Koi pond**: koi swim under glass panels, follow your cursor, and scatter when you click. 🏺 **Earth**: warm earth tones with liquid glass. ✳️ **Attention**: warm paper, drifting words in many languages; threads follow your cursor, click a word to bloom related words, and a spark wakes up while Claude is answering.
+Live themes for the Claude desktop app. 🐟 **Koi pond**: koi swim under glass panels, follow your cursor, and scatter when you click. 🏺 **Earth**: warm earth tones with liquid glass. ✳️ **Attention**: warm paper, drifting words in many languages; threads follow your cursor, click a word to bloom related words, and a spark wakes up while Claude is answering. Optional **chat words** (Ctrl+Alt+W, off by default): the floating words come from the current conversation instead, extracted locally in memory, nothing sent anywhere.
 
 ![koi pond](preview-koi.png)
 
