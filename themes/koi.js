@@ -191,8 +191,13 @@
   const REDS = ['#e2471f', '#d93a1c', '#e5531f', '#ec6a2a', '#c8321a'], INK = '#1c1c1e', WHITES = ['#f7f3ec', '#f8f5ef', '#f2ede4'];
   const spots = (n, cols, r0 = 0.08, r1 = 0.16) => Array.from({ length: n }, () => [rnd(0.6, 7), rnd(-0.5, 0.5), rnd(r0, r1), pick(cols)]);
   const ri = (a, b) => a + ((Math.random() * (b - a + 1)) | 0);
+  const GRADS = [['#5fd3c6', '#7a8cf0', '#d67ad8'], ['#f6c445', '#f07a3a', '#d8406a'], ['#bfe9f2', '#4fa3d9', '#2f5fa8'], ['#fbe3ea', '#f4a3bd', '#c95d8a'], ['#f3e7b0', '#9fd8a4', '#3f9c8c']];
   function randPattern() {
     const r = Math.random(), red = pick(REDS), white = pick(WHITES);
+    // gacha: ~0.5% rainbow (shifting hues), ~3% gradient; window.__koiForceRare = 'rainbow'|'gradient' forces it (debug)
+    const g0 = Math.random(), force = window.__koiForceRare;
+    if (force === 'rainbow' || (!force && g0 < 0.005)) return { body: '#f4eee6', rare: 'rainbow', spots: [], sheen: 0.6 };
+    if (force === 'gradient' || (!force && g0 < 0.035)) return { body: '#f4eee6', rare: 'gradient', grad: pick(GRADS), spots: [], sheen: 0.5 };
     if (r < 0.22) return { body: white, spots: spots(ri(2, 4), [red]) };                                                   // kohaku
     if (r < 0.36) return { body: white, spots: [...spots(ri(2, 3), [red]), ...spots(ri(2, 4), [INK], 0.03, 0.06)] };       // sanke
     if (r < 0.46) return { body: '#211e20', spots: [...spots(2, [red]), ...spots(ri(1, 2), [white], 0.07, 0.12)] };        // showa
@@ -341,11 +346,19 @@
     bodyPath(f, 14, 20); g.fill(); tailPath(f, 14, 20); g.fill();
   }
 
+  function bodyFill(f) {
+    const p = f.pat; if (!p.rare) return p.body;
+    const a = f.sp[0], z = f.sp[f.n - 1], lg = g.createLinearGradient(a[0], a[1], z[0], z[1]);
+    if (p.rare === 'rainbow') { const h0 = (performance.now() / 30) % 360; for (let i = 0; i <= 6; i++) lg.addColorStop(i / 6, `hsl(${(h0 + i * 55) % 360}, 85%, 62%)`); }
+    else p.grad.forEach((col, i) => lg.addColorStop(i / (p.grad.length - 1), col));
+    return lg;
+  }
+
   function drawFish(f) {
     const base = 0.55 + 0.45 * f.depth;
-    g.globalAlpha = base * 0.62; fins(f, f.pat.body); tailPath(f, 0, 0); g.fillStyle = f.pat.body; g.fill();
+    g.globalAlpha = base * 0.62; const bf = bodyFill(f); fins(f, bf); tailPath(f, 0, 0); g.fillStyle = bf; g.fill();
     g.globalAlpha = base;
-    bodyPath(f, 0, 0); g.fillStyle = f.pat.body; g.fill();
+    bodyPath(f, 0, 0); g.fillStyle = bf; g.fill();
     g.strokeStyle = 'rgba(20, 30, 30, 0.14)'; g.lineWidth = 1.2; g.stroke();
     g.save(); g.clip();
     for (const [si, off, rr, col] of f.pat.spots) {
