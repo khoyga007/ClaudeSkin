@@ -4,7 +4,7 @@ Your user handed you this folder and wants their Claude desktop app re-skinned. 
 
 ## What this is
 
-- A live theme for the **Claude desktop app** (tested on Windows, Claude 5.11492). Themes: `koi` (animated koi pond, default) and `earth` (warm earth tones + liquid glass).
+- A live theme for the **Claude desktop app** (tested on Windows, Claude 5.11492). Themes: `koi` (animated koi pond, default) , `earth` (warm earth tones + liquid glass) and `attention` (paper + word threads; reacts while Claude answers by checking only that the Stop button exists, never reads messages).
 - It uses the app's own **Developer menu → Enable Main Process Debugger**. A small Node script connects to that debugger on `127.0.0.1:9229` and runs `audit.js` + `themes/<name>.js` inside the app's windows.
 - Nothing is written to disk and no app files are changed. The theme lasts until Claude restarts.
 - Everything is drawn in code (canvas/CSS). The theme makes **no network requests**, uses **no storage**, and reads **nothing** from conversations.
@@ -37,10 +37,10 @@ Explain the risk once, plainly: **while the debugger is on, any program on this 
 Run from this folder:
 
 ```
-node inject.mjs koi      # or: node inject.mjs earth
+node inject.mjs koi      # or: earth, attention
 ```
 
-(On Windows the user can also double-click `ClaudeSkin.bat` for koi, or `ClaudeSkin-earth.bat` for earth.)
+(On Windows the user can also double-click `ClaudeSkin.bat` for koi, `ClaudeSkin-earth.bat` for earth, or `ClaudeSkin-attention.bat` for attention.)
 
 Reading the output:
 - `"state": "on"` → applied. `before` / `after` = number of text elements below WCAG contrast without vs with the theme. A small difference (1–2) is normal: the app's own placeholder text is faint even without the theme.

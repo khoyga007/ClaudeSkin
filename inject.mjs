@@ -1,6 +1,6 @@
 // ClaudeSkin inject: uses the app's own Developer menu > "Enable Main Process Debugger"
 // (Node inspector on 127.0.0.1:9229). No restart, no flags, no app files touched.
-// Usage: node inject.mjs [koi|earth]. Applies audit.js + themes/<name>.js to every window, audits contrast, ROLLS BACK automatically
+// Usage: node inject.mjs [koi|earth|attention]. Applies audit.js + themes/<name>.js to every window, audits contrast, ROLLS BACK automatically
 // if the theme makes text harder to read than stock.
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,7 @@ import path from 'node:path';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 if (typeof WebSocket !== 'function') { console.log('[FAIL] Needs Node.js 22 or newer (global WebSocket). You have ' + process.version); process.exit(1); }
 const THEME = (process.argv[2] || 'koi').replace(/[^a-z0-9-]/gi, '');
-if (!existsSync(path.join(HERE, 'themes', `${THEME}.js`))) { console.log(`[FAIL] No theme '${THEME}'. Available: koi, earth`); process.exit(1); }
+if (!existsSync(path.join(HERE, 'themes', `${THEME}.js`))) { console.log(`[FAIL] No theme '${THEME}'. Available: koi, earth, attention`); process.exit(1); }
 const SRC = readFileSync(path.join(HERE, 'audit.js'), 'utf8') + '\n' + readFileSync(path.join(HERE, 'themes', `${THEME}.js`), 'utf8');
 console.log(`theme: ${THEME}`);
 const PORT = Number(process.env.CS_PORT || 9229);

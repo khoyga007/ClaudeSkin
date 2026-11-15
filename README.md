@@ -1,6 +1,6 @@
 # ClaudeSkin
 
-Live themes for the Claude desktop app. 🐟 **Koi pond**: koi swim under glass panels, follow your cursor, and scatter when you click. 🏺 **Earth**: warm earth tones with liquid glass.
+Live themes for the Claude desktop app. 🐟 **Koi pond**: koi swim under glass panels, follow your cursor, and scatter when you click. 🏺 **Earth**: warm earth tones with liquid glass. ✳️ **Attention**: warm paper, drifting words in many languages; threads follow your cursor, click a word to bloom related words, and a spark wakes up while Claude is answering.
 
 ![koi pond](preview-koi.png)
 
@@ -16,7 +16,7 @@ Your Claude reads the code first, then guides you through the one step you do by
 
 1. Node.js 22+. Claude set to **light** appearance.
 2. In Claude: **Developer → Enable Main Process Debugger**.
-3. Run `ClaudeSkin.bat` (koi) or `ClaudeSkin-earth.bat` (earth), or `node inject.mjs koi`.
+3. Run `ClaudeSkin.bat` (koi) or `ClaudeSkin-earth.bat` (earth) or `ClaudeSkin-attention.bat` (attention), or `node inject.mjs koi`.
 4. **Turn the debugger off again.** The theme keeps running.
 
 **Ctrl+Alt+G** turns the theme on/off. **Ctrl+Alt+↑ / ↓** makes the glass more or less see-through (koi). `ClaudeSkin-off.bat`, or restarting Claude, removes it completely.
