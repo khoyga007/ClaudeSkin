@@ -86,7 +86,8 @@
   // ---- helpers -------------------------------------------------------------
   const TAU = Math.PI * 2;
   const MAXB = 0.36;                              // max bend per spine joint (rad)
-  const S = 0.5;                                   // render scale (pond sits behind glass)
+  let S = 1;                                       // render scale = devicePixelRatio (set in resize)
+  const K = () => S / 0.5;                          // sizes below were tuned at S = 0.5
   const rnd = (a, b) => a + Math.random() * (b - a);
   const wrapA = (a) => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -109,9 +110,9 @@
       rg.addColorStop(0, 'rgba(28, 82, 76, 0.22)'); rg.addColorStop(1, 'rgba(28, 82, 76, 0)');
       x.fillStyle = rg; x.fillRect(0, 0, w, h);
     }
-    const n = Math.round((w * h) / 2400);          // pebbles
+    const n = Math.round((w * h) / (2400 * K() * K()));   // pebbles
     for (let i = 0; i < n; i++) {
-      const k = Math.random(), r = rnd(1.5, 7);
+      const k = Math.random(), r = rnd(1.5, 7) * K();
       x.fillStyle = `rgba(${k < 0.5 ? '64, 92, 82' : k < 0.8 ? '124, 112, 92' : '214, 214, 198'}, ${rnd(0.1, 0.3)})`;
       x.beginPath(); x.ellipse(Math.random() * w, Math.random() * h, r, r * rnd(0.55, 0.9), rnd(0, TAU), 0, TAU); x.fill();
     }
@@ -353,7 +354,7 @@
     for (const f of fish) drawFish(f);              // sorted by depth at creation
     g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter';
     for (const [sc, vx, vy, al] of [[1.7, 9, 5, 0.1], [2.6, -6, 8, 0.075]]) {
-      causPat.setTransform(new DOMMatrix().translate(T * vx, T * vy).scale(sc));
+      causPat.setTransform(new DOMMatrix().translate(T * vx * K(), T * vy * K()).scale(sc * K()));
       g.globalAlpha = al; g.fillStyle = causPat; g.fillRect(0, 0, cv.width, cv.height);
     }
     g.globalCompositeOperation = 'source-over';
@@ -402,7 +403,7 @@
   }
   function resize() {
     const ow = W || innerWidth, oh = H || innerHeight;
-    W = innerWidth; H = innerHeight;
+    W = innerWidth; H = innerHeight; S = Math.min(2, window.devicePixelRatio || 1);
     cv.width = Math.max(1, Math.round(W * S)); cv.height = Math.max(1, Math.round(H * S));
     bed = makeBed(cv.width, cv.height);
     if (causPat) draw();
