@@ -1,5 +1,5 @@
 @echo off
-rem Auto-apply theme every time Claude starts (needs Main Process Debugger left on). Usage: ClaudeSkin-autostart.bat [koi^|earth^|attention]
+rem Auto-apply theme every time Claude starts (needs Main Process Debugger left on). Usage: ClaudeSkin-autostart.bat [koi^|earth^|attention^|sumi^|autumn^|auto]  (auto = koi by day, autumn at night)
 set THEME=%1
 if "%THEME%"=="" set THEME=koi
 rem stop any running watcher first so only one theme is auto-applied

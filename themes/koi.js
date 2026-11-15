@@ -186,13 +186,32 @@
     { body: '#f7f3ec', spots: [[2.2, -0.1, 0.16, '#e5531f'], [5.2, 0.2, 0.1, '#e5531f']] },
   ];
 
+  // Random variety + random spot layout per fish, so every launch gets a different school.
+  const pick = (a) => a[(Math.random() * a.length) | 0];
+  const REDS = ['#e2471f', '#d93a1c', '#e5531f', '#ec6a2a', '#c8321a'], INK = '#1c1c1e', WHITES = ['#f7f3ec', '#f8f5ef', '#f2ede4'];
+  const spots = (n, cols, r0 = 0.08, r1 = 0.16) => Array.from({ length: n }, () => [rnd(0.6, 7), rnd(-0.5, 0.5), rnd(r0, r1), pick(cols)]);
+  const ri = (a, b) => a + ((Math.random() * (b - a + 1)) | 0);
+  function randPattern() {
+    const r = Math.random(), red = pick(REDS), white = pick(WHITES);
+    if (r < 0.22) return { body: white, spots: spots(ri(2, 4), [red]) };                                                   // kohaku
+    if (r < 0.36) return { body: white, spots: [...spots(ri(2, 3), [red]), ...spots(ri(2, 4), [INK], 0.03, 0.06)] };       // sanke
+    if (r < 0.46) return { body: '#211e20', spots: [...spots(2, [red]), ...spots(ri(1, 2), [white], 0.07, 0.12)] };        // showa
+    if (r < 0.56) return { body: pick(['#efb23b', '#f2c552', '#e8e6e0']), spots: [], sheen: 0.5 };                          // ogon / platinum
+    if (r < 0.64) return { body: pick(['#f2802e', '#ef6a28', '#f59a3a']), spots: spots(ri(0, 1), ['#f8b45c'], 0.06, 0.1) }; // orange
+    if (r < 0.71) return { body: white, spots: [[0.7, 0, rnd(0.08, 0.1), red]] };                                          // tancho
+    if (r < 0.79) return { body: '#ece5d7', spots: [...spots(2, ['#5d6f86', '#6a7d96'], 0.1, 0.14), ...spots(1, ['#ec7a3c'], 0.07, 0.1)] }; // asagi
+    if (r < 0.86) return { body: pick(['#8a6a4a', '#9c7a52']), spots: [], sheen: 0.3 };                                     // chagoi
+    if (r < 0.93) return { body: '#e9e6df', spots: [...spots(3, ['#e0702a', '#d8902e']), ...spots(2, ['#4a5a6c'], 0.05, 0.08)], sheen: 0.4 }; // kujaku
+    return { body: '#211e20', spots: spots(ri(2, 3), ['#f2b33a', '#e8e6e0'], 0.08, 0.13) };                                // kin / kumonryu
+  }
+
   function makeFish(i) {
     const L = rnd(95, 150), n = 12, seg = L / n;
     const x = rnd(0.12, 0.88) * W, y = rnd(0.12, 0.88) * H, a = rnd(-Math.PI, Math.PI);
     const sp = [];
     for (let k = 0; k < n; k++) sp.push([x - Math.cos(a) * seg * k, y - Math.sin(a) * seg * k]);
     return { L, n, seg, sp, a, v: rnd(28, 44), base: rnd(26, 44), wt: 0, ph: rnd(0, TAU),
-      depth: rnd(0.68, 1), pat: PATTERNS[i % PATTERNS.length], flee: 0, lure: null };
+      depth: rnd(0.68, 1), pat: randPattern(), flee: 0, lure: null };
   }
 
   function makePads() {
@@ -420,6 +439,16 @@
     }
   }
 
+  // plugin bands above the prompt live in open shadow roots: page CSS can't reach, so drop a style inside
+  const BAND_CSS = `[data-engine-tree]{font-size:12px;font-variant-numeric:tabular-nums;}[data-engine-row]{align-items:center;}span[style*='opacity'],span[style*='dim-ink']{letter-spacing:.02em;}span[style*='color: rgb(70, 167, 88)']{color:#3f9e86 !important;}div[style*='background-color: rgb(70, 167, 88)']{background:linear-gradient(90deg,#7cc4b0,#2e8a6e) !important;}span[style*='color: rgb(245, 217, 10)']{color:#e07a2c !important;}div[style*='background-color: rgb(245, 217, 10)']{background:linear-gradient(90deg,#f4b06a,#e0702a) !important;}span[style*='color: rgb(5, 162, 194)']{color:#2a7f96 !important;}div[style*='background-color: rgb(5, 162, 194)']{background:linear-gradient(90deg,#7cc0d4,#1d6a80) !important;}span[style*='color: rgb(229, 72, 77)']{color:#c8381f !important;}div[style*='background-color: rgb(229, 72, 77)']{background:linear-gradient(90deg,#ee6a4a,#b42318) !important;}div[style*='background-color: rgba(127, 127, 127, 0.22)']{background:rgba(20, 72, 68, 0.12) !important;}div[style*='background-color: rgba(127, 127, 127, 0.75)']{background:#16403c !important;width:2px !important;}div:has(> div[style*='background-color']){height:4px !important;align-self:center;border-radius:999px;overflow:hidden;}div:has(> div[style*='background-color']) > div{height:4px !important;}`;
+  function skinBands() {
+    for (const h of document.querySelectorAll('[data-plugin-drawn="AbovePrompt"]')) {
+      const r = h.shadowRoot; if (!r || r.getElementById('cs-band')) continue;
+      const st = document.createElement('style'); st.id = 'cs-band'; st.textContent = BAND_CSS; r.appendChild(st);
+    }
+  }
+  const unskinBands = () => { for (const h of document.querySelectorAll('[data-plugin-drawn]')) h.shadowRoot?.getElementById('cs-band')?.remove(); };
+
   function start() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
   function stop() { cancelAnimationFrame(raf); raf = 0; }
 
@@ -437,7 +466,7 @@
     for (let i = 0; i < count; i++) fish.push(makeFish(i));
     fish.sort((a, b) => a.depth - b.depth);
     makePads();
-    clearUnder(); clearTimer = setInterval(clearUnder, 2000);
+    clearUnder(); skinBands(); clearTimer = setInterval(() => { clearUnder(); skinBands(); }, 1000);
     addEventListener('pointermove', onMove, { passive: true });
     addEventListener('pointerdown', onDown, { passive: true });
     addEventListener('resize', resize);
@@ -466,6 +495,7 @@
     }
     if (e.ctrlKey && e.altKey && e.code === 'KeyG' && styleEl) {
       styleEl.disabled = !styleEl.disabled;
+      if (styleEl.disabled) unskinBands(); else skinBands();
       backdrop.style.display = styleEl.disabled ? 'none' : '';
       if (styleEl.disabled) stop(); else start();
     }
@@ -474,7 +504,7 @@
   window.__claudeSkinCleanup = () => {
     removeEventListener('keydown', onKey, true);
     removeEventListener('pointermove', onMove); removeEventListener('pointerdown', onDown); removeEventListener('resize', resize);
-    clearInterval(clearTimer); stop(); clearTimeout(toastT); document.documentElement.style.removeProperty('--cs-a');
+    clearInterval(clearTimer); unskinBands(); stop(); clearTimeout(toastT); document.documentElement.style.removeProperty('--cs-a');
     for (const el of document.querySelectorAll('[id^="cs-"]')) el.remove();
     for (const el of document.querySelectorAll('[data-cs-clear]')) el.removeAttribute('data-cs-clear');
     window.__claudeSkin = false; window.__claudeSkinState = 'off'; delete window.__claudeSkinStep; delete window.__claudeSkinFish;
