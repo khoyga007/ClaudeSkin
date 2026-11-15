@@ -60,6 +60,7 @@ Tell the user to untick **Developer → Enable Main Process Debugger**. The them
 - **Ctrl+Alt+Up / Down** (koi): glass opacity 20–90% for this session, default 50%. Below about 40%, faint text can become hard to read over the fish.
 - Koi pond: move the mouse and nearby fish come over as if waiting for food. Click to drop a ripple — fish close by dart away, fish further off swim towards it, lily pads drift.
 - Remove completely: `node off.mjs` (or `ClaudeSkin-off.bat`), or simply restart Claude.
+- Autostart (user keeps debugger on): `ClaudeSkin-autostart.bat <theme>` writes Startup\ClaudeSkin-watch.vbs -> hidden `node watch.mjs`, injects once per new inspector id. Undo: `ClaudeSkin-autostart-off.bat`. Explain: keeps debugger exposure permanent.
 
 ## Hard rules
 

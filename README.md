@@ -21,6 +21,8 @@ Your Claude reads the code first, then guides you through the one step you do by
 
 **Ctrl+Alt+G** turns the theme on/off. **Ctrl+Alt+↑ / ↓** makes the glass more or less see-through (koi). `ClaudeSkin-off.bat`, or restarting Claude, removes it completely.
 
+**Auto-apply on every start** (only if you keep the Main Process Debugger on): run `ClaudeSkin-autostart.bat [koi|earth|attention]` once. A hidden watcher re-applies the theme whenever Claude starts. Undo with `ClaudeSkin-autostart-off.bat`.
+
 ## Is it safe?
 
 - No app files are changed. Nothing is saved to disk. The themes make no network calls and read nothing from your chats. The code is short; read it.
@@ -42,6 +44,8 @@ Theme động cho app Claude desktop: hồ cá koi bơi dưới lớp kính, cá
 4. **Tắt debugger đi.** Theme vẫn chạy tiếp.
 
 **Ctrl+Alt+G** để bật/tắt theme. **Ctrl+Alt+↑ / ↓** để kính đục hơn hoặc trong hơn (theme koi). Muốn gỡ thì chạy `ClaudeSkin-off.bat` hoặc khởi động lại Claude.
+
+**Tự nạp mỗi lần mở app** (chỉ khi để Debugger bật sẵn): chạy `ClaudeSkin-autostart.bat [koi|earth|attention]` một lần. Một tiến trình chạy ẩn sẽ nạp lại theme mỗi khi Claude khởi động. Gỡ bằng `ClaudeSkin-autostart-off.bat`.
 
 ⚠️ Khi debugger đang bật, mọi chương trình trên máy đều điều khiển được app Claude, nên chỉ bật đúng lúc cài theme. Đây là bản không chính thức, app update có thể làm hỏng theme; khởi động lại Claude là về như cũ.
 
