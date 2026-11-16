@@ -4,8 +4,10 @@
 // edges get a curling push, so the outline keeps smoking off while the shape holds. Where the dragon leaves, the ink is
 // no longer refreshed and dissolves into the water. Fire = high-velocity coloured jets from the mouth.
 // Light: black ink on paper, vermilion/gold fire. Dark: glowing silver smoke, neon orange/pink fire.
-// Behaviour: wanders; follows the pointer while it moves; click = turn and breathe at it; breathes in bursts while
-// Claude works; calmer when idle. No assets, no network, never reads messages. Engine shared with themes/fluid.js.
+// Behaviour: plays with a glowing pearl (chases it, it darts off); follows the pointer while it moves, and when the
+// pointer rests a while swims over, sniffs it and snorts; click = breathe at it; while Claude works it coils slowly
+// around the pearl, and when the reply ends breathes one big blast at it. No assets, no network, never reads messages.
+// Engine shared with themes/fluid.js.
 (() => {
   if (window.top !== window) return;
   if (typeof window.__claudeSkinCleanup === 'function') window.__claudeSkinCleanup();
@@ -91,6 +93,12 @@ ${L} textarea:focus-visible, ${L} [contenteditable="true"]:focus-visible { outli
 ${Q} .dframe-sidebar a, ${Q} .dframe-sidebar button { transition: background-color .18s ease, transform .18s ease; }
 ${D} .dframe-sidebar a:hover, ${D} .dframe-sidebar button:hover { background-color: rgba(255, 140, 60, 0.10) !important; transform: translateX(2px); }
 ${L} .dframe-sidebar a:hover, ${L} .dframe-sidebar button:hover { background-color: rgba(255, 255, 255, 0.6) !important; transform: translateX(2px); }
+${Q} [data-cs-bandbox] { background: rgba(var(--cs-g), calc(var(--cs-a) + 0.14)) !important; box-shadow: inset 0 1px 0 var(--cs-edge), inset 0 0 0 1px var(--cs-rim), 0 6px 24px var(--cs-sh) !important; }
+/* usage band colours: the band lives in a mod's shadow root, so only these inherited vars reach it (see BAND_CSS) */
+${L} { --cs-trk: rgba(40, 30, 20, 0.12); --cs-ok: linear-gradient(180deg, #55555a, #1d1d21); --cs-okg: none; --cs-okt: #1d1d21;
+  --cs-wn: linear-gradient(180deg, #c99a3e, #9a6c1c); --cs-wng: none; --cs-wnt: #9a6c1c; --cs-bd: #b3261e; --cs-bdg: none; --cs-bdt: #b3261e; }
+${D} { --cs-trk: rgba(150, 170, 220, 0.13); --cs-ok: linear-gradient(180deg, #c3d1f2, #7d93c6); --cs-okg: 0 0 6px rgba(140, 165, 230, 0.45); --cs-okt: #c3d1f2;
+  --cs-wn: linear-gradient(180deg, #f0c878, #c9973c); --cs-wng: 0 0 6px rgba(240, 190, 100, 0.4); --cs-wnt: #f0c878; --cs-bd: #ff4a2a; --cs-bdg: 0 0 6px rgba(255, 70, 40, 0.6); --cs-bdt: #ff6a4a; }
 #cs-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
 #cs-fluid { display: block; width: 100%; height: 100%; }
 #cs-toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 2147483000; pointer-events: none;
@@ -115,6 +123,10 @@ float fbm(vec2 p){ return .5 * vnoise(p) + .3 * vnoise(p * 2.1 + 7.3) + .2 * vno
     clear: H + 'uniform sampler2D t0; uniform float uK; void main(){ gl_FragColor = uK * texture2D(t0, v); }',
     splat: H + `uniform sampler2D t0; uniform float uAsp, uR; uniform vec2 uP; uniform vec4 uC;
 void main(){ vec2 p = v - uP; p.x *= uAsp; gl_FragColor = vec4(texture2D(t0, v).xyz + exp(-dot(p, p) / uR) * uC.xyz, 1.); }`,
+    splat4: H + `uniform sampler2D t0; uniform float uAsp; uniform vec4 uP[4]; uniform vec3 uC[4];
+void main(){ vec3 a = texture2D(t0, v).xyz;
+  for (int i = 0; i < 4; i++) { vec2 p = v - uP[i].xy; p.x *= uAsp; a += exp(-dot(p, p) / max(uP[i].z, 1e-6)) * uC[i] * uP[i].w; }
+  gl_FragColor = vec4(a, 1.); }`,
     advect: H + `uniform sampler2D t0, t1; uniform vec2 uSrcTx; uniform float uDt, uDiss, uManual;
 vec4 bil(sampler2D s, vec2 uv, vec2 tx){
   vec2 st = uv / tx - .5, i = floor(st), f = fract(st);
@@ -174,8 +186,12 @@ void main(){
     ink: H + NOISE + `uniform sampler2D t0, t1; uniform vec3 uInk; uniform float uK, uT;
 void main(){
   vec4 d = texture2D(t0, v);
-  vec2 wv = v + (vec2(fbm(v * 14. + uT * .2), fbm(v * 14. + 5.2 - uT * .17)) - .5) * .025;
-  float m = texture2D(t1, wv).r;
+  // fast path: far from the silhouette (beyond the noise warp reach) only the thinning applies; skips 4 fbm calls on most of the screen
+  vec4 n0 = texture2D(t1, v) + texture2D(t1, v + vec2(.035, 0.)) + texture2D(t1, v - vec2(.035, 0.)) + texture2D(t1, v + vec2(0., .035)) + texture2D(t1, v - vec2(0., .035));
+  float near = n0.r + n0.b;
+  if (near < .002) { gl_FragColor = vec4(d.rgb * (1. - clamp(uK, 0., 1.) * .45), 1.); return; }
+  vec2 wv =v + (vec2(fbm(v * 14. + uT * .2), fbm(v * 14. + 5.2 - uT * .17)) - .5) * .025;
+  vec4 mm = texture2D(t1, wv); float m = mm.r, cb = mm.b;
   float e = clamp(abs(texture2D(t1, vR).r - texture2D(t1, vL).r) + abs(texture2D(t1, vT).r - texture2D(t1, vB).r), 0., 1.);
   float streak = smoothstep(.25, .85, fbm(vec2(v.x * 16., v.y * 9.) + vec2(uT * .12, -uT * .07)));
   float wisp = smoothstep(.4, .8, fbm(v * 30. + vec2(uT * .4, -uT * .3)));
@@ -183,32 +199,45 @@ void main(){
   float k = clamp(uK, 0., 1.);
   vec3 o = d.rgb * (1. - (1. - m) * k * .45);          // outside the silhouette smoke thins fast
   o = mix(o, tgt, clamp(smoothstep(.2, .85, m) * k * 2., 0., 1.));            // inside it is pulled back to the brush pattern: shape holds
+  // cloud (mask blue): a paler, billowing wash held in place the same way as the body
+  float bill = fbm(v * 7. + vec2(uT * .05, -uT * .03));
+  o = mix(o, uInk * (.25 + .55 * bill), clamp(smoothstep(.04, .8, cb) * k * 1.5, 0., 1.));
   gl_FragColor = vec4(o + max(uInk * e * 2.5 * wisp - o, 0.) * k, 1.);
 }`,
-    display: H + NOISE + `uniform sampler2D t0, t1; uniform float uDark, uCap, uT, uAsp, uEyeR; uniform vec2 uEye; uniform vec4 uGape; uniform vec3 uBg, uInk;
+    display: H + NOISE + `uniform sampler2D t0, t1, t2; uniform float uDark, uCap, uT, uAsp, uEyeR, uEyeA; uniform vec2 uEye; uniform vec4 uGape, uPearl; uniform vec3 uBg, uInk;
 void main(){
   vec3 d = max(texture2D(t0, v).rgb, 0.);
   vec3 col;
+  // paper with calligraphy (r) and a red seal (g), dry-brush broken; the smoke drifts over it
+  vec4 cg = texture2D(t2, v);
+  vec3 bg = uBg;
+  if (cg.r + cg.g > .004) {   // noise only where there is writing
+    vec2 pv = v * vec2(uAsp, 1.);
+    float dry = smoothstep(.18, .62, vnoise(pv * vec2(90., 420.)) * .6 + vnoise(pv * 260.) * .4);
+    float ink = cg.r * mix(.35, 1., dry), seal = cg.g * mix(.7, 1., vnoise(pv * 300.));
+    bg = uDark > .5 ? uBg + vec3(.075, .078, .095) * ink : uBg * (1. - ink * .2);
+    bg = mix(bg, uDark > .5 ? vec3(.42, .06, .05) : vec3(.74, .13, .08), seal * (uDark > .5 ? .55 : .7));
+  }
   if (uDark > .5) {
     float s = max(d.r, max(d.g, d.b));
     vec3 h = pow(d / (s + .0001), vec3(2.6));
     float b = 1. - exp(-s * 4.5);
     vec3 g = h * b + vec3(pow(b, 6.) * .35);
-    col = uBg + clamp(g, 0., 1.) * (1. - uBg);
-    col *= uCap; col = max(col, uBg);
+    col = bg + clamp(g, 0., 1.) * (1. - bg);
+    col *= uCap; col = max(col, bg);
   } else {
     vec3 k = min(d, vec3(2.6));   // dense smoke may go near-black
-    col = uBg * exp(-k);
+    col = bg * exp(-k);
     col *= mix(.97, 1., smoothstep(1.25, .35, length(v - .5)));
   }
   // glowing red eye: the one crisp thing, tells you where the head is
   vec2 q = (v - uEye) * vec2(uAsp, 1.);
   float r2 = dot(q, q) / (uEyeR * uEyeR);
-  float pulse = .85 + .15 * sin(uT * 3.1);
+  float pulse = (.85 + .15 * sin(uT * 3.1)) * uEyeA;
   vec3 red = vec3(1., .1, .03);
   col = mix(col, red, clamp((exp(-r2 * 1.4) + exp(-r2 * .09) * .35) * pulse, 0., 1.));
   col += red * exp(-r2 * .04) * .7 * uDark * pulse;
-  col += vec3(1., .75, .45) * exp(-r2 * 7.) * .7;
+  col += vec3(1., .75, .45) * exp(-r2 * 7.) * .7 * uEyeA;
   // fire glow in the open mouth (xy = pos, z = radius, w = how open)
   // open-mouth glow: warped, blurred, flickering - no hard wedge edge
   vec2 wg = v + (vec2(vnoise(v * 40. + uT * 3.), vnoise(v * 40. - uT * 2.7 + 9.)) - .5) * .02;
@@ -218,6 +247,23 @@ void main(){
   float gl = smoothstep(.02, .7, gm) * uGape.w;
   col = mix(col, mix(vec3(1., .28, .03), vec3(1., .9, .55), smoothstep(.3, .9, gm)), clamp(gl * .9, 0., .9));
   col += vec3(1., .4, .05) * gl * .35 * uDark;
+  // pearl (xy = pos, z = radius, w = glow): crisp orb with a swirling core; the body passes in front of it
+  vec2 pq = (v - uPearl.xy) * vec2(uAsp, 1.) / uPearl.z;
+  float pr = length(pq), occ = 1. - texture2D(t1, v).r * .8;
+  float core = smoothstep(1., .82, pr) * occ, halo = exp(-pr * pr * .3) * occ;
+  float sw = vnoise(pq * 2.6 + vec2(uT * .9, -uT * .7)) * .6 + vnoise(pq * 5. - uT * 1.3) * .4;
+  float spec = exp(-dot(pq - vec2(-.32, .34), pq - vec2(-.32, .34)) * 22.);
+  if (uDark > .5) {
+    vec3 pc = mix(vec3(.45, .75, 1.), vec3(.95, 1., 1.), smoothstep(.85, 0., pr));
+    col += pc * halo * .4 * uPearl.w;
+    col = mix(col, pc * (.8 + .35 * sw), core);
+  } else {
+    vec3 pc = mix(vec3(.93, .55, .2), vec3(1., .9, .62), smoothstep(.9, .05, pr));
+    col *= 1. - halo * .12 * uPearl.w;                                   // faint ink-wash aura
+    col = mix(col, pc * (.85 + .25 * sw), core);
+    col *= 1. - exp(-pow((pr - 1.) * 9., 2.)) * .3 * occ;                // thin brush rim
+  }
+  col += vec3(1.) * spec * core * .55;
   gl_FragColor = vec4(col, 1.);
 }`,
   };
@@ -228,7 +274,7 @@ void main(){
 
   // ---- GL ------------------------------------------------------------------------------
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-  const SIM_H = 128, DYE_H = 512, ITER = 20, MASK_H = 240;   // low-res on purpose: soft edges, fine geometry only leaks as wisps
+  const SIM_H = 128, DYE_H = 1024, ITER = 20, MASK_H = 240;   // low-res on purpose: soft edges, fine geometry only leaks as wisps
   const CFG = { velDiss: 0.5, dyeDiss: 0.9, pressK: 0.8, curl: 14, force: 2600, rMove: 0.0014 };
   let styleEl, backdrop, cv, gl, P = {}, half = 0, linear = false, quad = null;
   let vel, dye, prs, div, crl, simW = 0, simH = 0, dyeW = 0, dyeH = 0, maskTex = null, mcv = null, mx = null;
@@ -310,42 +356,179 @@ void main(){
   // All dragon geometry in CSS px, y down. N spine joints, joint 0 = head.
   const N = 54;
   const HS = 1.0;   // head scale vs body radius
-  const dg = { pts: [], prev: [], hx: 0, hy: 0, ang: 0, tx: 0, ty: 0, nextWander: 0, breath: 0, bx: 0, by: 0, burstAt: 0, jaw: 0 };
+  const dg = { roll: 0, rollT: 0, pts: [], prev: [], hx: 0, hy: 0, ang: 0, tx: 0, ty: 0, nextWander: 0, breath: 0, bx: 0, by: 0, roar: 0, jaw: 0, mode: '' };
   const segLen = () => Math.max(12, Hh * 0.03);
   const rad = () => Math.max(14, Hh * 0.056);
   function dragonInit() {
     dg.hx = W * 0.62; dg.hy = Hh * 0.42; dg.ang = Math.PI * 0.85;
-    dg.pts = []; dg.prev = [];
+    dg.pts = []; dg.prev = []; dg.roll = dg.rollT = Math.cos(dg.ang) < 0 ? 1 : 0;
     const s = segLen();
     for (let i = 0; i < N; i++) {   // start coiled in an S behind the head
       const a = dg.ang + Math.PI + Math.sin(i * 0.22) * 0.9;
       const p = i ? { x: dg.pts[i - 1].x + Math.cos(a) * s, y: dg.pts[i - 1].y + Math.sin(a) * s } : { x: dg.hx, y: dg.hy };
       dg.pts.push(p); dg.prev.push({ x: p.x, y: p.y });
     }
-    pickWander();
+    pl.x = pl.hx = W * 0.3; pl.y = pl.hy = Hh * 0.38; pl.vx = pl.vy = 0; pl.caught = -9;
+    pickHome();
   }
-  function pickWander() {
-    const m = Math.min(W, Hh) * 0.18;
-    for (let k = 0; k < 8; k++) {   // prefer a target far from the head
-      dg.tx = m + Math.random() * (W - 2 * m); dg.ty = m + Math.random() * (Hh - 2 * m);
-      if (Math.hypot(dg.tx - dg.hx, dg.ty - dg.hy) > Hh * 0.6 && Math.abs(wrapA(Math.atan2(dg.ty - dg.hy, dg.tx - dg.hx) - dg.ang)) < 1.6) break;
+  // ---- pearl: the dragon plays with it. It drifts around a home point; when the head reaches it, it darts off to a new home.
+  const pl = { x: 0, y: 0, vx: 0, vy: 0, hx: 0, hy: 0, nextHome: 0, caught: -9 };
+  function pickHome() {
+    const m = Math.min(W, Hh) * 0.16;
+    for (let k = 0; k < 10; k++) {   // somewhere well away from the head
+      pl.hx = m + Math.random() * (W - 2 * m); pl.hy = m + Math.random() * (Hh - 2 * m);
+      if (Math.hypot(pl.hx - dg.hx, pl.hy - dg.hy) > Hh * 0.55) break;
     }
-    dg.nextWander = T + 4 + Math.random() * 4;
+    pl.nextHome = T + 8 + Math.random() * 6;
   }
+  function pearlUpdate(dt) {
+    if (busy) pl.nextHome = T + 4;   // hold still while the dragon circles it
+    else if (T > pl.nextHome) pickHome();
+    const tx = pl.hx + Math.sin(T * 0.7) * Hh * 0.05, ty = pl.hy + Math.cos(T * 0.93) * Hh * 0.04;
+    pl.vx += ((tx - pl.x) * 0.5 - pl.vx * 1.3) * dt; pl.vy += ((ty - pl.y) * 0.5 - pl.vy * 1.3) * dt;
+    pl.x += pl.vx * dt; pl.y += pl.vy * dt;
+    const m = rad() * 1.5;
+    pl.x = clamp(pl.x, m, W - m); pl.y = clamp(pl.y, m, Hh - m);
+    // caught: dart away, roughly along the dragon's heading so it has to turn and follow
+    const ex = pl.x - dg.hx, ey = pl.y - dg.hy, d = Math.hypot(ex, ey) || 1;
+    if (!busy && dg.breath <= 0 && d < rad() * 2.6 && T - pl.caught > 1.5) {
+      const ux = ex / d + Math.cos(dg.ang + 0.9 * (Math.random() < 0.5 ? -1 : 1)), uy = ey / d + Math.sin(dg.ang + 0.9 * (Math.random() < 0.5 ? -1 : 1)), l = Math.hypot(ux, uy) || 1;
+      pl.vx += ux / l * Hh * 0.9; pl.vy += uy / l * Hh * 0.9; pl.caught = T; pickHome();
+    }
+  }
+  // ---- sniff: pointer left still for a while -> swim over, sniff twice, snort, leave. Once per pointer rest.
+  const sn = { done: true, at: 0, step: 0 };
+  let wasBusy = 0, busyAt = 0;
+  // ---- cloud: every minute or so the dragon dives into a cloud bank that gathers ahead of it, vanishes, and surfaces
+  // from a second cloud elsewhere. Body parts inside an active cloud are cut from the mask, so it goes in head first
+  // and comes out head first; the ink it leaves behind dissolves into the cloud. A global fade covers the rest of the
+  // body once the head is in.
+  const cl = { ph: 'off', next: 25, t: 0, headIn: 0, A: null, B: null, fade: 1, out: 0 };
+  const cloudR = () => Hh * 0.2;
+  function cloudSpot(x, y) { const m = Math.min(W, Hh) * 0.24; const R = cloudR(), puffs = [];
+    for (let j = 0; j < 8; j++) { const a = j / 8 * Math.PI * 2 + Math.random() * 0.6, r = j ? R * (0.35 + Math.random() * 0.3) : 0;
+      puffs.push({ dx: Math.cos(a) * r * 1.4, dy: Math.sin(a) * r * 0.7, r: R * (0.45 + Math.random() * 0.25), ph: Math.random() * 6 }); }
+    return { x: clamp(x, m, W - m), y: clamp(y, m, Hh - m), hide: 0, on: true, amt: 0, puffs }; }
+  function visAt(x, y) {
+    let h = 0;
+    for (const c of [cl.A, cl.B]) if (c && c.hide > 0) { const R = cloudR(), d = Math.hypot(x - c.x, y - c.y); h = Math.max(h, c.hide * clamp((R * 0.95 - d) / (R * 0.4), 0, 1)); }
+    return cl.fade * (1 - h);
+  }
+  function cloudUpdate(dt, free, chasing) {
+    const R = cloudR();
+    if (cl.ph === 'off') {
+      if (T > cl.next && free) {
+        cl.A = cloudSpot(dg.hx + Math.cos(dg.ang) * Hh * 0.5, dg.hy + Math.sin(dg.ang) * Hh * 0.5);
+        cl.ph = 'enter'; cl.t = T; cl.headIn = 0;
+      }
+    } else if (cl.ph === 'enter') {
+      const A = cl.A;
+      A.hide = Math.min(1, (T - cl.t) / 1.2);
+      if (!cl.headIn && Math.hypot(dg.hx - A.x, dg.hy - A.y) < R * 0.45) cl.headIn = T;
+      if (cl.headIn) cl.fade = Math.max(0, 1 - (T - cl.headIn) / 2);
+      if ((chasing || busy || T - cl.t > 14) && !cl.headIn) { A.on = false; A.hide = 0; cl.ph = 'off'; cl.next = T + 20; return; }   // interrupted before diving: forget it
+      if (cl.headIn && cl.fade <= 0) {
+        cl.ph = 'hidden'; cl.t = T; A.on = false;
+        let bx = 0, by = 0;
+        for (let k = 0; k < 12; k++) { bx = Math.random() * W; by = Math.random() * Hh; if (Math.hypot(bx - A.x, by - A.y) > Math.max(W, Hh) * 0.45) break; }
+        cl.B = cloudSpot(bx, by); cl.B.hide = 1;
+      }
+    } else if (cl.ph === 'hidden') {
+      if (T - cl.t > 1.6) {   // the second cloud has gathered: surface from it, heading for the middle of the screen
+        cl.ph = 'emerge'; cl.t = T; if (cl.A) cl.A.hide = 0;
+        coilAt(cl.B.x, cl.B.y, Math.atan2(Hh / 2 - cl.B.y, W / 2 - cl.B.x) + (Math.random() - 0.5));
+      }
+    } else if (cl.ph === 'emerge') {
+      const B = cl.B, e = T - cl.t;
+      cl.fade = Math.min(1, e / 1.5);
+      if (e > 5) B.on = false;
+      if (e > 4) B.hide = Math.max(0, 1 - (e - 4) / 3);
+      if (e > 8) { cl.ph = 'off'; cl.fade = 1; cl.next = T + 45 + Math.random() * 40; }
+    }
+  }
+  function coilAt(x, y, ang) {   // place the whole body wound up tight inside a cloud, head pointing out
+    dg.hx = x; dg.hy = y; dg.ang = ang;
+    const s = segLen(), rr = cloudR() * 0.4;
+    let a = ang + Math.PI, px = x, py = y;
+    for (let i = 0; i < N; i++) {
+      if (i) { a += s / rr * 0.9; px += Math.cos(a) * s; py += Math.sin(a) * s; }
+      dg.pts[i].x = dg.prev[i].x = px; dg.pts[i].y = dg.prev[i].y = py;
+    }
+    dg.roll = dg.rollT = Math.cos(ang) < 0 ? 1 : 0;
+  }
+  function cloudFeed(kx, ky, dt) {   // clouds live in the mask (blue); here only their amount and a slow roll of the water
+    for (const c of [cl.A, cl.B]) {
+      if (!c) continue;
+      c.amt = clamp(c.amt + (c.on ? dt / 1.2 : -dt / 2), 0, 1);
+      if (c.amt > 0.05) { const a = T * 0.7, sp = Hh * 0.04 * c.amt; splatVel(c.x / W, 1 - c.y / Hh, Math.cos(a) * sp * kx, Math.sin(a) * sp * ky, 0.0025); }
+    }
+  }
+  function drawClouds(c) {   // opaque gradients on purpose: the mask upload is not premultiplied, so alpha would not reach the shader
+    c.globalCompositeOperation = 'lighter';
+    for (const cc of [cl.A, cl.B]) {
+      if (!cc || cc.amt <= 0.01) continue;
+      for (const p of cc.puffs) {
+        const x = cc.x + p.dx + Math.sin(T * 0.4 + p.ph) * p.r * 0.15, y = cc.y + p.dy + Math.cos(T * 0.33 + p.ph) * p.r * 0.1, r = p.r * (0.6 + 0.4 * cc.amt);
+        const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgb(0,0,${Math.round(150 * cc.amt)})`); g.addColorStop(1, 'rgb(0,0,0)');
+        c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+      }
+    }
+    c.globalCompositeOperation = 'source-over'; c.fillStyle = '#f00';
+  }
+
   function wrapA(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
+  // head roll: instead of mirroring the instant the dragon turns past vertical, the head rolls over smoothly (with hysteresis so it never flickers)
+  const headFlip = () => Math.cos(dg.roll * Math.PI);
+  function updateRoll(dt) {
+    if (dg.pts.length < 3) return;
+    const ca = Math.cos(Math.atan2(dg.pts[0].y - dg.pts[2].y, dg.pts[0].x - dg.pts[2].x));
+    if (ca < -0.3) dg.rollT = 1; else if (ca > 0.3) dg.rollT = 0;
+    const d = dg.rollT - dg.roll, step = dt * 1.6;   // ~0.6 s for a full roll
+    dg.roll += Math.abs(d) <= step ? d : Math.sign(d) * step;
+  }
   function dragonUpdate(dt) {
-    const chasing = T - ptrT < 2.5 && ptr.init;
-    if (chasing) { dg.tx = ptr.x * W; dg.ty = (1 - ptr.y) * Hh; }
-    else if (T > dg.nextWander) pickWander();
-    const dx = dg.tx - dg.hx, dy = dg.ty - dg.hy, dist = Math.hypot(dx, dy);
-    let want = Math.atan2(dy, dx);
+    updateRoll(dt);
+    pearlUpdate(dt);
+    const R = rad(), idle = T - ptrT;
+    // reply finished: one big breath at the pearl (only after a real reply, not a blip of the busy probe)
+    if (busy && !wasBusy) busyAt = T;
+    if (!busy && wasBusy && T - busyAt > 2) { dg.roar = T + 2.5; pl.caught = T + 2.5; }   // turn to face the pearl first, then fire
+    wasBusy = busy;
+    const chasing = idle < 2.5 && ptr.init;
+    const px = ptr.x * W, py = (1 - ptr.y) * Hh;
+    cloudUpdate(dt, !chasing && !busy && !dg.roar && dg.breath <= 0 && (sn.done || idle < 6), chasing);
+    if (cl.ph === 'hidden') { for (let i = 0; i < N; i++) { dg.prev[i].x = dg.pts[i].x; dg.prev[i].y = dg.pts[i].y; } dg.mode = 'hidden'; return; }
+    const diving = cl.ph === 'enter' || (cl.ph === 'emerge' && T - cl.t < 2.5);
+    const sniffing = !chasing && !busy && !sn.done && idle > 6 && dg.breath <= 0;
+    let mode = 'pearl', near = false;
+    if (diving) {
+      if (cl.ph === 'enter') { const A = cl.A, oa = Math.atan2(dg.hy - A.y, dg.hx - A.x) + (cl.headIn ? 1.2 : 0), r = cl.headIn ? cloudR() * 0.3 : 0; dg.tx = A.x + Math.cos(oa) * r; dg.ty = A.y + Math.sin(oa) * r; }
+      else { dg.tx = dg.hx + Math.cos(dg.ang) * Hh; dg.ty = dg.hy + Math.sin(dg.ang) * Hh; }
+      mode = 'cloud';
+    } else if (chasing) { dg.tx = px; dg.ty = py; mode = 'chase'; }
+    else if (busy) {   // thinking: coil slowly around the pearl, aiming a little ahead on the circle
+      const oa = Math.atan2(dg.hy - pl.y, dg.hx - pl.x) + 0.8, r = Hh * 0.26;
+      dg.tx = pl.x + Math.cos(oa) * r; dg.ty = pl.y + Math.sin(oa) * r; mode = 'think';
+    } else if (sniffing) {
+      dg.tx = px; dg.ty = py; mode = 'sniff';
+      const sx = px - dg.hx, sy = py - dg.hy;
+      near = Math.hypot(sx, sy) < R * 3.2;
+      if (near && !sn.at) sn.at = T;
+      if (sn.at) sniffFx(T - sn.at, px, py);
+      if (sn.at && T - sn.at > 2.8) { sn.done = true; sn.at = 0; pickHome(); }   // bored: off to the pearl, far side
+    } else { dg.tx = pl.x; dg.ty = pl.y; }
+    dg.mode = mode;
+    let want = Math.atan2(dg.ty - dg.hy, dg.tx - dg.hx);
+    if (dg.roar) {
+      want = Math.atan2(pl.y - dg.hy, pl.x - dg.hx);
+      if (Math.abs(wrapA(want - dg.ang)) < 0.35 || T > dg.roar) { startBreath(pl.x, pl.y, 1.3); dg.roar = 0; }
+    }
     if (dg.breath > 0) want = Math.atan2(dg.by - dg.hy, dg.bx - dg.hx);
-    if (dist < Hh * 0.25 && !dg.breath) pickWander();   // arrived: pick a new far target instead of circling
-    const turn = (dg.breath > 0 ? 2.2 : chasing ? 0.9 : 0.55) * dt;   // wide turns keep the body in open S-curves
+    const turn = (dg.breath > 0 || dg.roar ? 2.2 : mode === 'sniff' ? (near ? 1.4 : 0.9) : mode === 'chase' ? 0.9 : mode === 'think' ? 0.7 : mode === 'cloud' ? 1.0 : 0.6) * dt;   // wide turns keep the body in open S-curves
     dg.ang += clamp(wrapA(want - dg.ang), -turn, turn);
-    dg.ang += Math.sin(T * 1.3) * 0.7 * dt;   // serpentine sway, travels down the body through follow-the-leader
-    const calm = !busy && T - lastAct > 20;
-    const sp = Hh * (dg.breath > 0 ? 0.05 : calm ? 0.07 : chasing ? 0.2 : 0.12);
+    dg.ang += Math.sin(T * 1.3) * (mode === 'sniff' && near ? 0.3 : 0.7) * dt;   // serpentine sway, travels down the body through follow-the-leader
+    const calm = !busy && T - lastAct > 20 && mode === 'pearl';
+    const sp = Hh * (dg.breath > 0 || dg.roar ? 0.05 : mode === 'sniff' ? (near ? 0.035 : 0.13) : mode === 'think' ? 0.085 : mode === 'cloud' ? 0.1 : calm ? 0.07 : chasing ? 0.2 : 0.12);
     dg.hx += Math.cos(dg.ang) * sp * dt; dg.hy += Math.sin(dg.ang) * sp * dt;
     // soft walls
     const m = Math.min(W, Hh) * 0.14;
@@ -357,12 +540,23 @@ void main(){
       const a = dg.pts[i - 1], b = dg.pts[i], ex = b.x - a.x, ey = b.y - a.y, l = Math.hypot(ex, ey) || 1;
       b.x = a.x + ex / l * s; b.y = a.y + ey / l * s;
     }
-    // breath
-    if (busy && T > dg.burstAt) { startBreath(dg.hx + Math.cos(dg.ang) * W, dg.hy + Math.sin(dg.ang) * W, 1.1); dg.burstAt = T + 4 + Math.random() * 3; }
     dg.breath = Math.max(0, dg.breath - dt);
     dg.jaw += ((dg.breath > 0 ? 1 : 0) - dg.jaw) * Math.min(1, dt * 8);
   }
   function startBreath(x, y, dur) { dg.bx = x; dg.by = y; dg.breath = dur; }
+  // sniff effects, t = seconds since the head arrived: two inhales draw smoke from the cursor into the nose, then a snort
+  function sniffFx(t, px, py) {
+    const n = headPt(2.75, -0.3), kx = simW / Math.max(1, W), ky = simH / Math.max(1, Hh), b = dark ? BODY.dark : BODY.light;
+    if ((t > 0.3 && t < 0.75) || (t > 1.1 && t < 1.55)) {
+      const l = Math.max(1, Math.hypot(n.x - px, n.y - py)), ux = (n.x - px) / l, uy = (n.y - py) / l, sp = Hh * 0.7;
+      splat(px / W, 1 - py / Hh, ux * sp * kx, -uy * sp * ky, b.map(v => v * 0.12), 0.0004);
+      splatVel((px + n.x) / 2 / W, 1 - (py + n.y) / 2 / Hh, ux * sp * kx, -uy * sp * ky, 0.0007);
+    }
+    if (t > 2.0 && t < 2.2) {   // snort: two short jets out of the nostrils, sideways off the snout
+      const a = Math.atan2(dg.pts[0].y - dg.pts[2].y, dg.pts[0].x - dg.pts[2].x), sp = Hh * 1.4;
+      for (const s of [-0.9, 0.9]) splat(n.x / W, 1 - n.y / Hh, Math.cos(a + s) * sp * kx, -Math.sin(a + s) * sp * ky, b.map(v => v * 0.35), 0.0005);
+    }
+  }
   const radAt = (t) => {   // body thickness profile, t = 0 head .. 1 tail
     const R = rad();
     if (t < 0.06) return R * (0.75 + t / 0.06 * 0.25);
@@ -379,7 +573,7 @@ void main(){
     for (let i = 1; i < N; i++) {
       const t = i / (N - 1);
       c.lineWidth = radAt(t) * 2;
-      c.globalAlpha = t > 0.68 ? Math.pow(1 - (t - 0.68) / 0.32, 1.6) : 1;   // last third: shape lets go, tail is only smoke
+      c.globalAlpha = (t > 0.68 ? Math.pow(1 - (t - 0.68) / 0.32, 1.6) : 1) * visAt(pts[i].x, pts[i].y);   // last third: shape lets go, tail is only smoke
       c.beginPath(); c.moveTo(pts[i - 1].x, pts[i - 1].y); c.lineTo(pts[i].x, pts[i].y); c.stroke();
     }
     c.globalAlpha = 1;
@@ -388,6 +582,7 @@ void main(){
     for (let i = 3; i < Math.round(N * 0.66); i += 2) {   // spikes stop before the tail
       const t = i / (N - 1), [nx, ny, tx, ty] = nrm(i), r = radAt(t), h = r * (0.7 + 0.3 * Math.sin(i));
       const bx = pts[i].x + nx * r * 0.8, by = pts[i].y + ny * r * 0.8;
+      c.globalAlpha = visAt(pts[i].x, pts[i].y);
       c.beginPath(); c.moveTo(bx - tx * r * 0.5, by - ty * r * 0.5); c.lineTo(bx + nx * h + tx * r * 0.6, by + ny * h + ty * r * 0.6); c.lineTo(bx + tx * r * 0.5, by + ty * r * 0.5); c.fill();
     }
     // tapered filled stroke along a polyline: pointed, no round caps (round caps read as paddles once blurred)
@@ -406,6 +601,7 @@ void main(){
     for (const [t, side] of [[0.16, 1], [0.22, -1], [0.5, 1], [0.56, -1]]) {
       const i = Math.round(t * (N - 1)), [nx, ny, tx, ty] = nrm(i), r = radAt(t);
       const sw = Math.sin(T * 3 + i) * 0.4, ox = -nx * side, oy = -ny * side;   // outward from the body
+      c.globalAlpha = visAt(pts[i].x, pts[i].y);
       const kx = pts[i].x + ox * r * 1.7 + tx * r * (0.8 + sw), ky = pts[i].y + oy * r * 1.7 + ty * r * (0.8 + sw);
       const fx = kx + ox * r * 0.6 - tx * r * 0.7, fy = ky + oy * r * 0.6 - ty * r * 0.7;   // shin bends forward
       taper(curve(pts[i].x, pts[i].y, (pts[i].x + kx) / 2 + ox * r * 0.3, (pts[i].y + ky) / 2 + oy * r * 0.3, kx, ky, 6), r * 0.8, r * 0.34);
@@ -421,14 +617,16 @@ void main(){
       const P = (u, v) => [pts[i].x + tx * u * r + nx * (v + w * u * 0.4) * r, pts[i].y + ty * u * r + ny * (v + w * u * 0.4) * r];
       const b = P(-0.4, 0), s1 = P(1.3, 1.05), e = P(3.4, 0), s2 = P(1.3, -1.05);
       const c1 = P(0.3, 0.9), c2 = P(2.6, 0.75), c3 = P(2.6, -0.75), c4 = P(0.3, -0.9);
-      c.globalAlpha = 0.28;
+      c.globalAlpha = 0.28 * visAt(pts[i].x, pts[i].y);
       c.beginPath(); c.moveTo(b[0], b[1]); c.quadraticCurveTo(c1[0], c1[1], s1[0], s1[1]); c.quadraticCurveTo(c2[0], c2[1], e[0], e[1]);
       c.quadraticCurveTo(c3[0], c3[1], s2[0], s2[1]); c.quadraticCurveTo(c4[0], c4[1], b[0], b[1]); c.fill();
       c.globalAlpha = 1; }
     // head, in head space: +x forward, +y = right side
     const a = Math.atan2(pts[0].y - pts[2].y, pts[0].x - pts[2].x);
+    c.globalAlpha = visAt(pts[0].x, pts[0].y);
+    if (c.globalAlpha <= 0.01) { c.globalAlpha = 1; drawClouds(c); return; }
     c.save(); c.translate(pts[0].x, pts[0].y); c.rotate(a);
-    const flip = Math.cos(a) < 0 ? -1 : 1;   // keep the head upright: horns up on screen
+    const flip = headFlip();   // keep the head upright: horns up on screen, rolled over smoothly
     c.scale(HS, HS * flip);   // head reads bigger than the body tube
     const jaw = dg.jaw * 0.95;
     // mane: strands flowing back from the neck
@@ -487,7 +685,50 @@ void main(){
     // eye: cut a hole so it reads as a bright eye in light mode
     c.beginPath(); c.ellipse(R * 0.55, -R * 0.38, R * 0.2, R * 0.11, -0.2, 0, Math.PI * 2); c.fill();
     c.globalCompositeOperation = 'source-over';
-    c.restore();
+    c.restore(); c.globalAlpha = 1;
+    drawClouds(c);
+  }
+  // ---- calligraphy: a big running-script column 雲從龍 ("clouds follow the dragon", I Ching), a small column 飛龍在天,
+  // and a red seal 墨龍 with the characters cut out. r = ink, g = seal. Redrawn only on resize. System fonts only.
+  const FONT = '"STXingkai","华文行楷","STKaiti","KaiTi","Kaiti SC",serif';
+  let calTex = null;
+  function buildCalli() {
+    const w = cv.width, h = cv.height, k = h / Math.max(1, Hh), c = document.createElement('canvas').getContext('2d');
+    c.canvas.width = w; c.canvas.height = h;
+    c.fillStyle = '#000'; c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'lighter'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const column = (txt, x, y, size, alpha) => {
+      c.fillStyle = `rgba(255,0,0,${alpha})`;
+      for (const ch of txt) {
+        const sz = size * (0.92 + rnd() * 0.18);
+        c.save(); c.translate(x + (rnd() - 0.5) * size * 0.08, y + sz / 2); c.rotate((rnd() - 0.5) * 0.12);
+        c.font = `${Math.round(sz)}px ${FONT}`; c.fillText(ch, 0, 0); c.restore();
+        y += sz * 0.98;
+      }
+      return y;
+    };
+    const big = Hh * 0.12 * k, small = Hh * 0.042 * k, x0 = w - big * 0.85;
+    column('雲從龍', x0, h * 0.08, big, 1);
+    const ys = column('飛龍在天', x0 - big * 0.95, h * 0.13, small, 0.9);
+    // seal: square, slightly rough edge, characters knocked out
+    const ss = small * 1.5, sc = document.createElement('canvas').getContext('2d');
+    sc.canvas.width = sc.canvas.height = Math.ceil(ss);
+    sc.fillStyle = '#0f0'; sc.beginPath();
+    sc.moveTo(ss * 0.03, ss * 0.05); sc.lineTo(ss * 0.97, ss * 0.02); sc.lineTo(ss * 0.98, ss * 0.96); sc.lineTo(ss * 0.04, ss * 0.98); sc.closePath(); sc.fill();
+    sc.globalCompositeOperation = 'destination-out'; sc.textAlign = 'center'; sc.textBaseline = 'middle';
+    sc.font = `${Math.round(ss * 0.44)}px "STKaiti","KaiTi",serif`;
+    sc.fillText('墨', ss * 0.5, ss * 0.28); sc.fillText('龍', ss * 0.5, ss * 0.72);
+    c.drawImage(sc.canvas, x0 - big * 0.95 - ss / 2, ys + small * 0.4);
+    if (!calTex) {
+      calTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, calTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, calTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c.canvas);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   }
   function uploadMask() {
     gl.bindTexture(gl.TEXTURE_2D, maskTex);
@@ -499,7 +740,7 @@ void main(){
   function headPt(lx, ly) {   // head space (units of R, x forward, y down-right) -> CSS px; matches drawMask's scale 1.35 + flip
     if (dg.pts.length < 3) return { x: -1e4, y: -1e4 };   // render can run before dragonInit
     const p0 = dg.pts[0], p2 = dg.pts[2], a = Math.atan2(p0.y - p2.y, p0.x - p2.x), R = rad() * HS;
-    const f = Math.cos(a) < 0 ? -1 : 1, x = lx * R, y = ly * R * f;
+    const f = headFlip(), x = lx * R, y = ly * R * f;
     return { x: p0.x + Math.cos(a) * x - Math.sin(a) * y, y: p0.y + Math.sin(a) * x + Math.cos(a) * y };
   }
   const eye = () => headPt(0.55, -0.38);
@@ -516,7 +757,21 @@ void main(){
   }
   function splat(x, y, dx, dy, color, r) {
     splatVel(x, y, dx, dy, r);
-    pass('splat', dye.b, [dye.a.tex], { uP: [x, y], uR: r, uAsp: cv.width / Math.max(1, cv.height), uC: [color[0], color[1], color[2], 0] }); dye.swap();
+    dyeQ.push([x, y, r, color]);   // dye splats are batched: one full-res pass per 4 instead of one each
+  }
+  const dyeQ = [];
+  function flushDye() {
+    while (dyeQ.length) {
+      const b = dyeQ.splice(0, 4), P4 = new Float32Array(16), C4 = new Float32Array(12);
+      b.forEach(([x, y, r, c], i) => { P4.set([x, y, r, 1], i * 4); C4.set([c[0], c[1], c[2]], i * 3); });
+      const pr = P.splat4; gl.useProgram(pr.p);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dye.b.fb); gl.viewport(0, 0, dye.b.w, dye.b.h);
+      gl.uniform2fv(pr.u('uTx'), dye.tx);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, dye.a.tex); gl.uniform1i(pr.u('t0'), 0);
+      gl.uniform1f(pr.u('uAsp'), cv.width / Math.max(1, cv.height));
+      gl.uniform4fv(pr.u('uP[0]'), P4); gl.uniform3fv(pr.u('uC[0]'), C4);
+      gl.drawArrays(gl.TRIANGLES, 0, 3); dye.swap();
+    }
   }
   function step(dt) {
     pass('curl', crl, [vel.a.tex], {});
@@ -532,9 +787,10 @@ void main(){
   }
   function render() {
     const e = eye();
-    pass('display', null, [dye.a.tex, maskTex], { uDark: dark ? 1 : 0, uCap: CAP_DARK, uBg: dark ? NIGHT : PAPER, uInk: dark ? BODY.dark : BODY.light, uT: T,
+    pass('display', null, [dye.a.tex, maskTex, calTex], { uEyeA: visAt(dg.pts[0]?.x ?? 0, dg.pts[0]?.y ?? 0), uDark: dark ? 1 : 0, uCap: CAP_DARK, uBg: dark ? NIGHT : PAPER, uInk: dark ? BODY.dark : BODY.light, uT: T,
       uAsp: W / Math.max(1, Hh), uEye: [e.x / W, 1 - e.y / Hh], uEyeR: rad() * 0.34 / Math.max(1, Hh),
-      uGape: (() => { const g = gape(); return [g.x / W, 1 - g.y / Hh, rad() * 0.9 / Math.max(1, Hh), clamp(dg.jaw, 0, 1)]; })() });
+      uGape: (() => { const g = gape(); return [g.x / W, 1 - g.y / Hh, rad() * 0.9 / Math.max(1, Hh), clamp(dg.jaw, 0, 1)]; })(),
+      uPearl: [pl.x / W, 1 - pl.y / Hh, rad() * 0.5 / Math.max(1, Hh), busy ? 1.4 + 0.6 * Math.sin(T * 4) : 1] });
   }
   function inputs(dt) {
     dragonUpdate(dt);
@@ -544,16 +800,20 @@ void main(){
       const p = dg.pts[i], q = dg.prev[i], vx = (p.x - q.x) / dt, vy = (p.y - q.y) / dt;
       splatVel(p.x / W, 1 - p.y / Hh, vx * kx * 0.5, -vy * ky * 0.5, 0.0006);
     }
+    cloudFeed(kx, ky, dt);
+    // pearl stirs the water as it moves and sheds a faint trail of light
+    { const v = Math.hypot(pl.vx, pl.vy);
+      if (v > Hh * 0.05) splat(pl.x / W, 1 - pl.y / Hh, pl.vx * kx * 0.6, -pl.vy * ky * 0.6, dark ? [0.04, 0.07, 0.1] : [0.01, 0.025, 0.07], 0.0003); }
     // tail tip trails a thin wisp of smoke for the water to carry off
     { const p = dg.pts[N - 1], q = dg.pts[N - 4], ex = p.x - q.x, ey = p.y - q.y, l = Math.hypot(ex, ey) || 1, b = dark ? BODY.dark : BODY.light, sp = Hh * 0.25;
       splat(p.x / W, 1 - p.y / Hh, ex / l * sp * kx, -ey / l * sp * ky, b.map(v => v * 0.22), 0.00035); }
     // fire
     if (dg.breath > 0 && dg.jaw > 0.4) {
-      const m = mouth(), pal = dark ? FIRE.dark : FIRE.light, sp = Hh * 1.9;
-      for (let j = 0; j < 1; j++) {
-        const a = m.a + (Math.random() - 0.5) * 0.3, f = Math.random();
-        const col = pal[0].map((v, c) => (v + (pal[1][c] - v) * f) * (dark ? 1.3 : 1.0));
-        splat(m.x / W, 1 - m.y / Hh, Math.cos(a) * sp * kx, -Math.sin(a) * sp * ky, col, 0.0005 + Math.random() * 0.0004);
+      const m = mouth(), pal = dark ? FIRE.dark : FIRE.light, sp = Hh * 2.6;
+      for (let j = 0; j < 3; j++) {   // thick, roaring cone: several puffs per frame, wider spread, hotter core
+        const a = m.a + (Math.random() - 0.5) * 0.55, f = Math.random();
+        const col = pal[0].map((v, c) => (v + (pal[1][c] - v) * f) * (dark ? 1.6 : 1.25));
+        splat(m.x / W, 1 - m.y / Hh, Math.cos(a) * sp * kx, -Math.sin(a) * sp * ky, col, 0.0012 + Math.random() * 0.0012);
       }
     }
     if (ptr.moved) {
@@ -573,13 +833,14 @@ void main(){
     if (el < (active ? 31 : (T - lastAct < 20 ? 36 : 60))) return;   // dragon always moves: ~30 / ~28 / ~16 fps
     const dt = Math.min(el / 1000, 1 / 30);
     T += dt; last = now;
-    inputs(dt); drawMask(); uploadMask(); step(dt); render();
+    inputs(dt); flushDye(); drawMask(); uploadMask(); step(dt); render();
   }
   function resize() {
     W = innerWidth; Hh = innerHeight; S = Math.min(1.25, window.devicePixelRatio || 1);
     cv.width = Math.max(1, Math.round(W * S)); cv.height = Math.max(1, Math.round(Hh * S));
     if (!gl) return;
     if (!vel || Math.abs(simW / simH - W / Math.max(1, Hh)) > 0.02) { buildTargets(); dragonInit(); }
+    buildCalli();
     render();
   }
 
@@ -597,10 +858,80 @@ void main(){
   }
   const BUSY_SEL = 'button[aria-label*="Stop" i], button[aria-label*="Dừng" i], button[aria-label*="Interrupt" i]';
   const checkBusy = () => { busy = document.querySelector(BUSY_SEL) ? 1 : 0; };
+  // ---- usage band: the mod paints its bars as Boxes with inline green/yellow/red/grey; tag each by level so the CSS can
+  // recolour them in ink. Inline values are resolved to rgb once each (they may be CSS vars), then cached.
+  const lvOf = new Map();
+  function levelOf(el, prop) {
+    const raw = el.style[prop];
+    if (!raw) return '';
+    if (lvOf.has(raw)) return lvOf.get(raw);
+    const p = document.createElement('i'); p.style.color = raw; el.parentElement.appendChild(p);
+    const m = (getComputedStyle(p).color.match(/[\d.]+/g) || []).map(Number); p.remove();
+    let lv = '';
+    if (m.length >= 3) {
+      const [r, g, b, a = 1] = m, spread = Math.max(r, g, b) - Math.min(r, g, b);
+      if (spread < 30) lv = a > 0.5 ? 'tick' : 'track';
+      else if (g >= r && g > b) lv = 'ok';
+      else if (r > 150 && g > 100 && b < 120) lv = 'warn';
+      else if (r > g && r > b) lv = 'bad';
+    }
+    lvOf.set(raw, lv); return lv;
+  }
+  const BAND_CSS = `
+[data-cs-bar] { border-radius: 3px; overflow: hidden; }
+[data-cs-lv], [data-cs-tx] { transition: none !important; }   /* re-rendered nodes start green: never animate from it */
+[data-cs-lv="track"] { background: var(--cs-trk) !important; }
+[data-cs-lv="ok"] { background: var(--cs-ok) !important; box-shadow: var(--cs-okg); }
+[data-cs-lv="warn"] { background: var(--cs-wn) !important; box-shadow: var(--cs-wng); }
+[data-cs-lv="bad"], [data-cs-lv="tick"] { background: var(--cs-bd) !important; box-shadow: var(--cs-bdg); }
+[data-cs-tx="ok"] { color: var(--cs-okt) !important; }
+[data-cs-tx="warn"] { color: var(--cs-wnt) !important; }
+[data-cs-tx="bad"] { color: var(--cs-bdt) !important; }`;
+  let bandRow = null, bandObs = null, bandStyle = null;
+  function tagBandKids() {
+    if (!bandRow) return;
+    for (const el of bandRow.querySelectorAll('*')) {
+      if (el.style.backgroundColor) {
+        const lv = levelOf(el, 'backgroundColor');
+        if (lv) { if (el.getAttribute('data-cs-lv') !== lv) el.setAttribute('data-cs-lv', lv); if (!el.parentElement.hasAttribute('data-cs-bar')) el.parentElement.setAttribute('data-cs-bar', ''); }
+      } else if (el.style.color && !el.childElementCount) {
+        const lv = levelOf(el, 'color');
+        if (lv === 'ok' || lv === 'warn' || lv === 'bad') { if (el.getAttribute('data-cs-tx') !== lv) el.setAttribute('data-cs-tx', lv); }
+        else if (el.hasAttribute('data-cs-tx')) el.removeAttribute('data-cs-tx');
+      }
+    }
+  }
+  function tagBand() {
+    if (bandRow && bandRow.isConnected) return;
+    bandObs?.disconnect(); bandObs = null; bandRow = null;
+    let root = null;
+    for (const h of document.querySelectorAll('[class*="engine-button-edge"]')) {   // mod UI hosts render into a shadow root
+      const sr = h.shadowRoot;
+      if (!sr) continue;
+      const w = document.createTreeWalker(sr, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n && !bandRow; n = w.nextNode()) {
+        if (n.nodeValue.replace(/ /g, ' ').trim() !== 'context') continue;
+        for (let r = n.parentElement, i = 0; i < 6 && r; i++, r = r.parentElement) {
+          if (r.textContent.includes('cache') && /session|week/.test(r.textContent)) { if (r.textContent.length < 240) { bandRow = r; root = sr; } break; }
+        }
+      }
+      if (bandRow) break;
+    }
+    if (!bandRow) return;
+    if (!root.querySelector('style[data-cs-band]')) { bandStyle?.remove(); bandStyle = document.createElement('style'); bandStyle.setAttribute('data-cs-band', ''); bandStyle.textContent = BAND_CSS; root.appendChild(bandStyle); }
+    for (let p = root.host, i = 0; p && i < 6; p = p.parentElement, i++) {   // the rounded panel around it is the app's, outside the shadow root
+      const cs = getComputedStyle(p);
+      if (cs.borderRadius !== '0px' && alphaOf(cs.backgroundColor) > 0.01 && p.getBoundingClientRect().height < 140) { p.setAttribute('data-cs-bandbox', ''); break; }
+    }
+    tagBandKids();
+    // the mod re-renders every second and may replace the whole row: watch the shadow root, re-find and re-tag before paint
+    bandObs = new MutationObserver(() => { if (!bandRow?.isConnected) { bandRow = null; tagBand(); } else tagBandKids(); });
+    bandObs.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });
+  }
   const onMove = (e) => {
     const x = e.clientX / Math.max(1, innerWidth), y = 1 - e.clientY / Math.max(1, innerHeight);
     if (!ptr.init) { ptr.init = true; ptr.px = x; ptr.py = y; }
-    ptr.x = x; ptr.y = y; ptr.moved = true; ptrT = T; lastAct = T;
+    ptr.x = x; ptr.y = y; ptr.moved = true; ptrT = T; lastAct = T; sn.done = false; sn.at = 0;
   };
   const onDown = (e) => {
     if (!gl || !vel || styleEl.disabled) return;
@@ -620,7 +951,7 @@ void main(){
   function start() { if (!raf && gl) { last = performance.now(); raf = requestAnimationFrame(frame); } }
   function stop() { cancelAnimationFrame(raf); raf = 0; }
   const onLost = (e) => { e.preventDefault(); stop(); vel = dye = prs = div = crl = null; };
-  const onRestored = () => { try { if (initGL()) { buildTargets(); resize(); start(); } } catch { /* stays plain */ } };
+  const onRestored = () => { try { calTex = null; if (initGL()) { buildTargets(); resize(); start(); } } catch { /* stays plain */ } };
 
   function mount() {
     backdrop = document.createElement('div'); backdrop.id = 'cs-backdrop';
@@ -639,22 +970,26 @@ void main(){
     cv.addEventListener('webglcontextlost', onLost); cv.addEventListener('webglcontextrestored', onRestored);
     resize();
     clearUnder(); clearTimer = setInterval(clearUnder, 2000);
-    checkBusy(); busyTimer = setInterval(checkBusy, 500);
+    checkBusy(); busyTimer = setInterval(() => { checkBusy(); tagBand(); }, 500);
     addEventListener('pointermove', onMove, { passive: true });
     addEventListener('pointerdown', onDown, { passive: true });
     addEventListener('resize', resize);
     start();
     // debug: advance n frames and snapshot (works while hidden). opts: busy, dark (preview palette), breathe [x,y] css px
+    window.__claudeSkinRoll = () => [+dg.roll.toFixed(2), dg.rollT];
+    window.__claudeSkinDbg = () => ({ mode: dg.mode, breath: +dg.breath.toFixed(2), head: [Math.round(dg.hx), Math.round(dg.hy)], pearl: [Math.round(pl.x), Math.round(pl.y)], sniffAt: sn.at && +(T - sn.at).toFixed(2), sniffDone: sn.done, cloud: cl.ph, fade: +cl.fade.toFixed(2), headVis: +visAt(dg.hx, dg.hy).toFixed(2) });
     window.__claudeSkinStep = (n = 1, opts = {}) => {
       if (opts.busy != null) busy = opts.busy;
       if (opts.dark != null && opts.dark !== dark) { dark = opts.dark; clearDye(); }
+      if (opts.cloud) cl.next = T;
       if (opts.breathe) startBreath(opts.breathe[0], opts.breathe[1], 1.3);
-      for (let i = 0; i < n; i++) { T += 1 / 30; inputs(1 / 30); drawMask(); uploadMask(); step(1 / 30); }
+      if (opts.ptr) { ptr.init = true; ptr.x = ptr.px = opts.ptr[0] / W; ptr.y = ptr.py = 1 - opts.ptr[1] / Hh; ptrT = T - (opts.idle || 0); sn.done = false; sn.at = 0; }
+      for (let i = 0; i < n; i++) { T += 1 / 30; inputs(1 / 30); flushDye(); drawMask(); uploadMask(); step(1 / 30); }
       render(); return cv.toDataURL('image/png');
     };
     window.__claudeSkinMask = () => mcv.toDataURL('image/png');
     window.__claudeSkinPerf = (n = 20) => { const b = new Uint8Array(4), t0 = performance.now();
-      for (let i = 0; i < n; i++) { inputs(1 / 30); drawMask(); uploadMask(); step(1 / 30); render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); }
+      for (let i = 0; i < n; i++) { inputs(1 / 30); flushDye(); drawMask(); uploadMask(); step(1 / 30); render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); }
       return { ms: (performance.now() - t0) / n, w: cv.width, h: cv.height, sim: [simW, simH], dye: [dyeW, dyeH], mask: [mcv.width, mcv.height], linear }; };
     window.__claudeSkinState = 'on';
   }
@@ -693,7 +1028,7 @@ void main(){
       mounted = false; stop();
       clearInterval(clearTimer); clearInterval(busyTimer);
       removeEventListener('pointermove', onMove); removeEventListener('pointerdown', onDown); removeEventListener('resize', resize);
-      if (gl) { freeTargets(); gl.deleteTexture(maskTex); gl.getExtension('WEBGL_lose_context')?.loseContext(); gl = null; }
+      if (gl) { freeTargets(); gl.deleteTexture(maskTex); if (calTex) gl.deleteTexture(calTex); gl.getExtension('WEBGL_lose_context')?.loseContext(); gl = null; }
       styleEl.remove(); backdrop.remove();
     }
     clearTimeout(toastT);
@@ -701,8 +1036,15 @@ void main(){
     de.removeAttribute('data-cs-n'); de.removeAttribute('data-cs-dark');
     de.style.removeProperty('--cs-ad'); de.style.removeProperty('--cs-al');
     for (const el of document.querySelectorAll('[data-cs-clear]')) el.removeAttribute('data-cs-clear');
+    bandObs?.disconnect(); bandObs = null; bandRow = null; bandStyle?.remove(); bandStyle = null;
+    for (const el of document.querySelectorAll('[data-cs-bandbox]')) el.removeAttribute('data-cs-bandbox');
+    for (const h of document.querySelectorAll('[class*="engine-button-edge"]')) {
+      const sr = h.shadowRoot; if (!sr) continue;
+      sr.querySelectorAll('style[data-cs-band]').forEach((e) => e.remove());
+      for (const a of ['data-cs-bandbox', 'data-cs-bar', 'data-cs-lv', 'data-cs-tx']) for (const el of sr.querySelectorAll(`[${a}]`)) el.removeAttribute(a);
+    }
     for (const el of document.querySelectorAll('[id^="cs-"]')) el.remove();
-    delete window.__claudeSkinStep; delete window.__claudeSkinPerf; delete window.__claudeSkinMask;
+    delete window.__claudeSkinStep; delete window.__claudeSkinRoll; delete window.__claudeSkinDbg; delete window.__claudeSkinPerf; delete window.__claudeSkinMask;
     window.__claudeSkin = false; window.__claudeSkinState = 'off';
   };
 
