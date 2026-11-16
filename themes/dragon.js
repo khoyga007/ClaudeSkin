@@ -482,7 +482,12 @@ void main(){
       const A = cl.A;
       A.hide = Math.min(1, (T - cl.t) / 1.2);
       if (!cl.headIn && Math.hypot(dg.hx - A.x, dg.hy - A.y) < R * 0.45) cl.headIn = T;
-      if (cl.headIn) cl.fade = Math.max(0, 1 - (T - cl.headIn) / 2);
+      // Yang: the whole dragon swims into the cloud, not half of it vanishing in mid-air. The head keeps orbiting inside the
+      // cloud (see the steering), the body winds in after it; only when the tail tip is in does the dive count as done.
+      // A global fade is the fallback if it can't get the tail in within 12 s.
+      if (cl.headIn) { const d = (i) => Math.hypot(dg.pts[i].x - A.x, dg.pts[i].y - A.y);
+        if (d(N - 1) < R * 0.35) cl.fade = 0;
+        else if (T - cl.headIn > 12) cl.fade = Math.max(0, 1 - (T - cl.headIn - 12) / 1.5); }
       if ((chasing || busy || T - cl.t > 14) && !cl.headIn) { A.on = false; A.hide = 0; cl.ph = 'off'; cl.next = T + 20; return; }   // interrupted before diving: forget it
       if (cl.headIn && cl.fade <= 0) {
         cl.ph = 'hidden'; cl.t = T; A.on = false;
@@ -568,6 +573,27 @@ void main(){
     const px = ptr.x * W, py = (1 - ptr.y) * Hh;
     cloudUpdate(dt, !chasing && !busy && !dg.roar && dg.breath <= 0 && !pl.held && !pl.drag && (sn.done || idle < 6), chasing);
     if (cl.ph === 'hidden') { for (let i = 0; i < N; i++) { dg.prev[i].x = dg.pts[i].x; dg.prev[i].y = dg.pts[i].y; } dg.mode = 'hidden'; return; }
+    // diving in (Yang): once the head reaches the cloud the body slides along its own path into it, head first, tail last,
+    // like a snake into a hole, instead of the head circling while the rest stays out. Path = cloud centre + the spine at that
+    // moment; each joint's distance along it shrinks by the reel each frame, so everything funnels into the centre.
+    if (cl.ph === 'enter' && cl.headIn) {
+      if (!cl.path) { const P = [[cl.A.x, cl.A.y], ...dg.pts.map((p) => [p.x, p.y])], L = [0];
+        for (let k = 1; k < P.length; k++) L.push(L[k - 1] + Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]));
+        cl.path = { P, L }; cl.reel = 0; }
+      const { P, L } = cl.path; cl.reel += Hh * 0.5 * dt;
+      for (let i = 0; i < N; i++) { dg.prev[i].x = dg.pts[i].x; dg.prev[i].y = dg.pts[i].y; }
+      let k = 1;
+      for (let i = 0; i < N; i++) {
+        const want = Math.max(0, L[i + 1] - cl.reel); while (k < L.length - 1 && L[k] < want) k++;
+        const f = L[k] > L[k - 1] ? clamp((want - L[k - 1]) / (L[k] - L[k - 1]), 0, 1) : 0;
+        dg.pts[i].x = P[k - 1][0] + (P[k][0] - P[k - 1][0]) * f; dg.pts[i].y = P[k - 1][1] + (P[k][1] - P[k - 1][1]) * f;
+        if (want <= 0) { dg.pts[i].x = P[0][0]; dg.pts[i].y = P[0][1]; }
+      }
+      const h = dg.pts[0], h2 = dg.pts[Math.min(N - 1, 2)];
+      dg.hx = h.x; dg.hy = h.y; if (Math.hypot(h.x - h2.x, h.y - h2.y) > 1) dg.ang = Math.atan2(h.y - h2.y, h.x - h2.x);
+      dg.mode = 'dive'; return;
+    }
+    cl.path = null;
     const diving = cl.ph === 'enter' || (cl.ph === 'emerge' && T - cl.t < 2.5);
     const sniffing = !chasing && !busy && !sn.done && idle > 6 && dg.breath <= 0;
     let mode = 'pearl', near = false;
@@ -1216,7 +1242,7 @@ void main(){
     start();
     // debug: advance n frames and snapshot (works while hidden). opts: busy, dark (preview palette), breathe [x,y] css px
     window.__claudeSkinRoll = () => [+dg.roll.toFixed(2), dg.rollT];
-    window.__claudeSkinDbg = () => ({ T: +T.toFixed(2), mode: dg.mode, breath: +dg.breath.toFixed(2), head: [Math.round(dg.hx), Math.round(dg.hy)], pearl: [Math.round(pl.x), Math.round(pl.y)], sniffAt: sn.at && +(T - sn.at).toFixed(2), sniffDone: sn.done, cloud: cl.ph, fade: +cl.fade.toFixed(2), headVis: +visAt(dg.hx, dg.hy).toFixed(2), held: pl.held ? +(pl.held - T).toFixed(1) : 0, charge: +pl.charge.toFixed(2), flare: +(T - pl.flare).toFixed(2), jaw: +dg.jaw.toFixed(2) });
+    window.__claudeSkinDbg = () => ({ T: +T.toFixed(2), mode: dg.mode, breath: +dg.breath.toFixed(2), head: [Math.round(dg.hx), Math.round(dg.hy)], pearl: [Math.round(pl.x), Math.round(pl.y)], sniffAt: sn.at && +(T - sn.at).toFixed(2), sniffDone: sn.done, cloud: cl.ph, fade: +cl.fade.toFixed(2), headVis: +visAt(dg.hx, dg.hy).toFixed(2), held: pl.held ? +(pl.held - T).toFixed(1) : 0, charge: +pl.charge.toFixed(2), flare: +(T - pl.flare).toFixed(2), jaw: +dg.jaw.toFixed(2), dive: cl.A ? [0, Math.round(N * 0.35), Math.round(N * 0.7), N - 1].map((i) => +(Math.hypot(dg.pts[i].x - cl.A.x, dg.pts[i].y - cl.A.y) / cloudR()).toFixed(2)) : null, headIn: cl.headIn ? +(T - cl.headIn).toFixed(1) : 0 });
     window.__claudeSkinStep = (n = 1, opts = {}) => {
       if (opts.busy != null) busy = opts.busy;
       if (opts.dark != null && opts.dark !== dark) { dark = opts.dark; clearDye(); }
