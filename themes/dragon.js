@@ -5,7 +5,8 @@
 // no longer refreshed and dissolves into the water. Fire = high-velocity coloured jets from the mouth.
 // Light: black ink on paper, vermilion/gold fire. Dark: glowing silver smoke, neon orange/pink fire.
 // Behaviour: plays with a glowing pearl (chases it, it darts off); follows the pointer while it moves, and when the
-// pointer rests a while swims over, sniffs it and snorts; click = breathe at it; while Claude works it coils slowly
+// pointer rests a while swims over, sniffs it and snorts; click = breathe at it; the pearl can be grabbed and thrown
+// (the dragon fetches it and carries it in its mouth a while); fire that hits the pearl is swallowed and bursts out as a ring; while Claude works it coils slowly
 // around the pearl, and when the reply ends breathes one big blast at it. No assets, no network, never reads messages.
 // Engine shared with themes/fluid.js.
 (() => {
@@ -99,6 +100,8 @@ ${L} { --cs-trk: rgba(40, 30, 20, 0.12); --cs-ok: linear-gradient(180deg, #55555
   --cs-wn: linear-gradient(180deg, #c99a3e, #9a6c1c); --cs-wng: none; --cs-wnt: #9a6c1c; --cs-bd: #b3261e; --cs-bdg: none; --cs-bdt: #b3261e; }
 ${D} { --cs-trk: rgba(150, 170, 220, 0.13); --cs-ok: linear-gradient(180deg, #c3d1f2, #7d93c6); --cs-okg: 0 0 6px rgba(140, 165, 230, 0.45); --cs-okt: #c3d1f2;
   --cs-wn: linear-gradient(180deg, #f0c878, #c9973c); --cs-wng: 0 0 6px rgba(240, 190, 100, 0.4); --cs-wnt: #f0c878; --cs-bd: #ff4a2a; --cs-bdg: 0 0 6px rgba(255, 70, 40, 0.6); --cs-bdt: #ff6a4a; }
+html[data-cs-grab="1"], html[data-cs-grab="1"] * { cursor: grab !important; }
+html[data-cs-grab="2"], html[data-cs-grab="2"] * { cursor: grabbing !important; user-select: none !important; }
 #cs-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
 #cs-fluid { display: block; width: 100%; height: 100%; }
 #cs-toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 2147483000; pointer-events: none;
@@ -204,7 +207,7 @@ void main(){
   o = mix(o, uInk * (.25 + .55 * bill), clamp(smoothstep(.04, .8, cb) * k * 1.5, 0., 1.));
   gl_FragColor = vec4(o + max(uInk * e * 2.5 * wisp - o, 0.) * k, 1.);
 }`,
-    display: H + NOISE + `uniform sampler2D t0, t1, t2; uniform float uDark, uCap, uT, uAsp, uEyeR, uEyeA; uniform vec2 uEye; uniform vec4 uGape, uPearl; uniform vec3 uBg, uInk;
+    display: H + NOISE + `uniform sampler2D t0, t1, t2; uniform float uDark, uCap, uT, uAsp, uEyeR, uEyeA; uniform vec2 uEye; uniform vec4 uGape, uPearl; uniform vec3 uBg, uInk; uniform vec3 uRing;
 void main(){
   vec3 d = max(texture2D(t0, v).rgb, 0.);
   vec3 col;
@@ -249,7 +252,7 @@ void main(){
   col += vec3(1., .4, .05) * gl * .35 * uDark;
   // pearl (xy = pos, z = radius, w = glow): crisp orb with a swirling core; the body passes in front of it
   vec2 pq = (v - uPearl.xy) * vec2(uAsp, 1.) / uPearl.z;
-  float pr = length(pq), occ = 1. - texture2D(t1, v).r * .8;
+  float pr = length(pq), occ = 1. - texture2D(t1, v).r * .8 * uRing.z;   // uRing.z = 0 while it sits in the mouth: in front of the jaws
   float core = smoothstep(1., .82, pr) * occ, halo = exp(-pr * pr * .3) * occ;
   float sw = vnoise(pq * 2.6 + vec2(uT * .9, -uT * .7)) * .6 + vnoise(pq * 5. - uT * 1.3) * .4;
   float spec = exp(-dot(pq - vec2(-.32, .34), pq - vec2(-.32, .34)) * 22.);
@@ -263,6 +266,11 @@ void main(){
     col = mix(col, pc * (.85 + .25 * sw), core);
     col *= 1. - exp(-pow((pr - 1.) * 9., 2.)) * .3 * occ;                // thin brush rim
   }
+  // swallowed fire: the orb runs hot, then a ring bursts out of it (uRing.xy = radius in pearl radii, strength)
+  float heat = clamp((uPearl.w - 1.6) / 3., 0., 1.);
+  float rg = exp(-pow((pr - uRing.x) * 1.4, 2.)) * uRing.y * (.55 + .9 * vnoise(pq * .7 + uT * .8));
+  if (uDark > .5) { col += vec3(1., .6, .25) * halo * heat * .7; col += vec3(.6, .85, 1.) * rg * .9; }
+  else { col = mix(col, vec3(1., .7, .32), clamp(halo * heat * .55, 0., .6)); col *= 1. - rg * .32; }
   col += vec3(1.) * spec * core * .55;
   gl_FragColor = vec4(col, 1.);
 }`,
@@ -356,7 +364,7 @@ void main(){
   // All dragon geometry in CSS px, y down. N spine joints, joint 0 = head.
   const N = 54;
   const HS = 1.0;   // head scale vs body radius
-  const dg = { roll: 0, rollT: 0, pts: [], prev: [], hx: 0, hy: 0, ang: 0, tx: 0, ty: 0, nextWander: 0, breath: 0, bx: 0, by: 0, roar: 0, jaw: 0, mode: '' };
+  const dg = { roll: 0, rollT: 0, pts: [], prev: [], hx: 0, hy: 0, ang: 0, tx: 0, ty: 0, nextWander: 0, breath: 0, bx: 0, by: 0, roar: 0, jaw: 0, fire: 0, mode: '' };
   const segLen = () => Math.max(12, Hh * 0.03);
   const rad = () => Math.max(14, Hh * 0.056);
   function dragonInit() {
@@ -372,7 +380,9 @@ void main(){
     pickHome();
   }
   // ---- pearl: the dragon plays with it. It drifts around a home point; when the head reaches it, it darts off to a new home.
-  const pl = { x: 0, y: 0, vx: 0, vy: 0, hx: 0, hy: 0, nextHome: 0, caught: -9 };
+  // drag: held by the pointer. thrown: when it was let go with speed (the dragon fetches). held: in the dragon's mouth until.
+  // charge: fire swallowed so far; flare: when the swallowed fire burst out as a ring.
+  const pl = { x: 0, y: 0, vx: 0, vy: 0, hx: 0, hy: 0, nextHome: 0, caught: -9, drag: false, thrown: -9, held: 0, charge: 0, hot: -9, flare: -9, flareAmt: 0 };
   function pickHome() {
     const m = Math.min(W, Hh) * 0.16;
     for (let k = 0; k < 10; k++) {   // somewhere well away from the head
@@ -381,17 +391,34 @@ void main(){
     }
     pl.nextHome = T + 8 + Math.random() * 6;
   }
+  function spit() {   // let go of the pearl: it shoots out ahead and the dragon gives it a moment before chasing again
+    pl.held = 0; pl.vx = Math.cos(dg.ang) * Hh * 0.8; pl.vy = Math.sin(dg.ang) * Hh * 0.8; pl.caught = T + 1; pickHome();
+  }
   function pearlUpdate(dt) {
+    if (pl.drag) {   // in the hand: follows the pointer, keeps a smoothed velocity for the throw
+      const tx = ptr.x * W, ty = (1 - ptr.y) * Hh, k = Math.min(1, dt * 14);
+      pl.vx += ((tx - pl.x) / dt - pl.vx) * k; pl.vy += ((ty - pl.y) / dt - pl.vy) * k;
+      pl.x = tx; pl.y = ty; pl.nextHome = T + 6; return;
+    }
+    if (pl.held) {   // in the mouth: rides between the jaws
+      const g = gape(); pl.x = g.x; pl.y = g.y; pl.vx = pl.vy = 0;
+      if (T > pl.held || busy || dg.roar || cl.ph !== 'off') spit();
+      return;
+    }
     if (busy) pl.nextHome = T + 4;   // hold still while the dragon circles it
     else if (T > pl.nextHome) pickHome();
     const tx = pl.hx + Math.sin(T * 0.7) * Hh * 0.05, ty = pl.hy + Math.cos(T * 0.93) * Hh * 0.04;
     pl.vx += ((tx - pl.x) * 0.5 - pl.vx * 1.3) * dt; pl.vy += ((ty - pl.y) * 0.5 - pl.vy * 1.3) * dt;
     pl.x += pl.vx * dt; pl.y += pl.vy * dt;
     const m = rad() * 1.5;
+    if (pl.x < m || pl.x > W - m) pl.vx *= -0.55;   // a thrown pearl bounces off the edges
+    if (pl.y < m || pl.y > Hh - m) pl.vy *= -0.55;
     pl.x = clamp(pl.x, m, W - m); pl.y = clamp(pl.y, m, Hh - m);
     // caught: dart away, roughly along the dragon's heading so it has to turn and follow
     const ex = pl.x - dg.hx, ey = pl.y - dg.hy, d = Math.hypot(ex, ey) || 1;
-    if (!busy && dg.breath <= 0 && d < rad() * 2.6 && T - pl.caught > 1.5) {
+    if (!busy && dg.breath <= 0 && !dg.roar && d < rad() * 2.6 && T - pl.caught > 1.5) {
+      // fetched after a throw, or now and then on its own: it takes the pearl in its mouth and shows it off
+      if (T - pl.thrown < 6 || (cl.ph === 'off' && Math.random() < 0.3)) { pl.held = T + 3.5 + Math.random() * 2; pl.thrown = -9; pl.caught = T; return; }
       const ux = ex / d + Math.cos(dg.ang + 0.9 * (Math.random() < 0.5 ? -1 : 1)), uy = ey / d + Math.sin(dg.ang + 0.9 * (Math.random() < 0.5 ? -1 : 1)), l = Math.hypot(ux, uy) || 1;
       pl.vx += ux / l * Hh * 0.9; pl.vy += uy / l * Hh * 0.9; pl.caught = T; pickHome();
     }
@@ -496,7 +523,7 @@ void main(){
     wasBusy = busy;
     const chasing = idle < 2.5 && ptr.init;
     const px = ptr.x * W, py = (1 - ptr.y) * Hh;
-    cloudUpdate(dt, !chasing && !busy && !dg.roar && dg.breath <= 0 && (sn.done || idle < 6), chasing);
+    cloudUpdate(dt, !chasing && !busy && !dg.roar && dg.breath <= 0 && !pl.held && !pl.drag && (sn.done || idle < 6), chasing);
     if (cl.ph === 'hidden') { for (let i = 0; i < N; i++) { dg.prev[i].x = dg.pts[i].x; dg.prev[i].y = dg.pts[i].y; } dg.mode = 'hidden'; return; }
     const diving = cl.ph === 'enter' || (cl.ph === 'emerge' && T - cl.t < 2.5);
     const sniffing = !chasing && !busy && !sn.done && idle > 6 && dg.breath <= 0;
@@ -505,7 +532,8 @@ void main(){
       if (cl.ph === 'enter') { const A = cl.A, oa = Math.atan2(dg.hy - A.y, dg.hx - A.x) + (cl.headIn ? 1.2 : 0), r = cl.headIn ? cloudR() * 0.3 : 0; dg.tx = A.x + Math.cos(oa) * r; dg.ty = A.y + Math.sin(oa) * r; }
       else { dg.tx = dg.hx + Math.cos(dg.ang) * Hh; dg.ty = dg.hy + Math.sin(dg.ang) * Hh; }
       mode = 'cloud';
-    } else if (chasing) { dg.tx = px; dg.ty = py; mode = 'chase'; }
+    } else if (T - pl.thrown < 6 && !pl.drag) { dg.tx = pl.x; dg.ty = pl.y; mode = 'fetch'; }   // thrown: dash after it
+    else if (chasing) { dg.tx = px; dg.ty = py; mode = 'chase'; }
     else if (busy) {   // thinking: coil slowly around the pearl, aiming a little ahead on the circle
       const oa = Math.atan2(dg.hy - pl.y, dg.hx - pl.x) + 0.8, r = Hh * 0.26;
       dg.tx = pl.x + Math.cos(oa) * r; dg.ty = pl.y + Math.sin(oa) * r; mode = 'think';
@@ -516,6 +544,8 @@ void main(){
       if (near && !sn.at) sn.at = T;
       if (sn.at) sniffFx(T - sn.at, px, py);
       if (sn.at && T - sn.at > 2.8) { sn.done = true; sn.at = 0; pickHome(); }   // bored: off to the pearl, far side
+    } else if (pl.held) {   // pearl in its mouth: a slow lap of the screen to show it off
+      dg.tx = W / 2 + Math.cos(T * 0.45) * W * 0.32; dg.ty = Hh / 2 + Math.sin(T * 0.45) * Hh * 0.28; mode = 'hold';
     } else { dg.tx = pl.x; dg.ty = pl.y; }
     dg.mode = mode;
     let want = Math.atan2(dg.ty - dg.hy, dg.tx - dg.hx);
@@ -524,11 +554,11 @@ void main(){
       if (Math.abs(wrapA(want - dg.ang)) < 0.35 || T > dg.roar) { startBreath(pl.x, pl.y, 1.3); dg.roar = 0; }
     }
     if (dg.breath > 0) want = Math.atan2(dg.by - dg.hy, dg.bx - dg.hx);
-    const turn = (dg.breath > 0 || dg.roar ? 2.2 : mode === 'sniff' ? (near ? 1.4 : 0.9) : mode === 'chase' ? 0.9 : mode === 'think' ? 0.7 : mode === 'cloud' ? 1.0 : 0.6) * dt;   // wide turns keep the body in open S-curves
+    const turn = (dg.breath > 0 || dg.roar ? 2.2 : mode === 'sniff' ? (near ? 1.4 : 0.9) : mode === 'chase' ? 0.9 : mode === 'fetch' ? 1.6 : mode === 'think' ? 0.7 : mode === 'cloud' ? 1.0 : 0.6) * dt;   // wide turns keep the body in open S-curves
     dg.ang += clamp(wrapA(want - dg.ang), -turn, turn);
     dg.ang += Math.sin(T * 1.3) * (mode === 'sniff' && near ? 0.3 : 0.7) * dt;   // serpentine sway, travels down the body through follow-the-leader
     const calm = !busy && T - lastAct > 20 && mode === 'pearl';
-    const sp = Hh * (dg.breath > 0 || dg.roar ? 0.05 : mode === 'sniff' ? (near ? 0.035 : 0.13) : mode === 'think' ? 0.085 : mode === 'cloud' ? 0.1 : calm ? 0.07 : chasing ? 0.2 : 0.12);
+    const sp = Hh * (dg.breath > 0 || dg.roar ? 0.05 : mode === 'sniff' ? (near ? 0.035 : 0.13) : mode === 'think' ? 0.085 : mode === 'cloud' ? 0.1 : mode === 'fetch' ? 0.28 : mode === 'hold' ? 0.1 : calm ? 0.07 : chasing ? 0.2 : 0.12);
     dg.hx += Math.cos(dg.ang) * sp * dt; dg.hy += Math.sin(dg.ang) * sp * dt;
     // soft walls
     const m = Math.min(W, Hh) * 0.14;
@@ -541,7 +571,8 @@ void main(){
       b.x = a.x + ex / l * s; b.y = a.y + ey / l * s;
     }
     dg.breath = Math.max(0, dg.breath - dt);
-    dg.jaw += ((dg.breath > 0 ? 1 : 0) - dg.jaw) * Math.min(1, dt * 8);
+    dg.jaw += ((dg.breath > 0 ? 1 : pl.held ? 0.42 : 0) - dg.jaw) * Math.min(1, dt * 8);   // a little open around the pearl
+    dg.fire += ((dg.breath > 0 ? 1 : 0) - dg.fire) * Math.min(1, dt * 8);
   }
   function startBreath(x, y, dur) { dg.bx = x; dg.by = y; dg.breath = dur; }
   // sniff effects, t = seconds since the head arrived: two inhales draw smoke from the cursor into the nose, then a snort
@@ -789,8 +820,10 @@ void main(){
     const e = eye();
     pass('display', null, [dye.a.tex, maskTex, calTex], { uEyeA: visAt(dg.pts[0]?.x ?? 0, dg.pts[0]?.y ?? 0), uDark: dark ? 1 : 0, uCap: CAP_DARK, uBg: dark ? NIGHT : PAPER, uInk: dark ? BODY.dark : BODY.light, uT: T,
       uAsp: W / Math.max(1, Hh), uEye: [e.x / W, 1 - e.y / Hh], uEyeR: rad() * 0.34 / Math.max(1, Hh),
-      uGape: (() => { const g = gape(); return [g.x / W, 1 - g.y / Hh, rad() * 0.9 / Math.max(1, Hh), clamp(dg.jaw, 0, 1)]; })(),
-      uPearl: [pl.x / W, 1 - pl.y / Hh, rad() * 0.5 / Math.max(1, Hh), busy ? 1.4 + 0.6 * Math.sin(T * 4) : 1] });
+      uGape: (() => { const g = gape(); return [g.x / W, 1 - g.y / Hh, rad() * 0.9 / Math.max(1, Hh), clamp(Math.min(dg.jaw, dg.fire), 0, 1)]; })(),
+      ...(() => { const fl = Math.max(0, 1 - (T - pl.flare) / 0.9), a = pl.flareAmt;
+        return { uPearl: [pl.x / W, 1 - pl.y / Hh, rad() * 0.5 * (1 + 0.18 * pl.charge + 0.3 * fl * a) / Math.max(1, Hh), (busy ? 1.4 + 0.6 * Math.sin(T * 4) : 1) + pl.charge * 2.6 + fl * fl * a * 3],
+          uRing: [1 + (1 - fl) * 22, fl * Math.min(1, a), pl.held ? 0 : 1] }; })() });
   }
   function inputs(dt) {
     dragonUpdate(dt);
@@ -815,6 +848,24 @@ void main(){
         const col = pal[0].map((v, c) => (v + (pal[1][c] - v) * f) * (dark ? 1.6 : 1.25));
         splat(m.x / W, 1 - m.y / Hh, Math.cos(a) * sp * kx, -Math.sin(a) * sp * ky, col, 0.0012 + Math.random() * 0.0012);
       }
+      // the pearl in the line of fire swallows it: the flame curls round it (a swirl, not a sink - the water can't be squeezed) and the orb runs hot
+      const ex = pl.x - m.x, ey = pl.y - m.y, ed = Math.hypot(ex, ey);
+      if (!pl.held && !pl.drag && ed < Hh * 0.95 && Math.abs(wrapA(Math.atan2(ey, ex) - m.a)) < 0.45) {
+        pl.charge = Math.min(1.5, pl.charge + dt * 1.3); pl.hot = T;
+        for (let j = 0; j < 3; j++) { const a = j * Math.PI * 2 / 3 + T * 2, r = rad() * 1.1, sp2 = Hh * 0.45;
+          splatVel((pl.x + Math.cos(a) * r) / W, 1 - (pl.y + Math.sin(a) * r) / Hh, -Math.sin(a) * sp2 * kx, -Math.cos(a) * sp2 * ky, 0.0003); }
+      }
+    }
+    // fire has stopped: what the pearl swallowed bursts out as a ring that shoves the smoke away
+    if (pl.charge > 0 && T - pl.hot > 0.3) {
+      if (pl.charge > 0.2) {
+        const a0 = pl.charge, col = dark ? [0.2, 0.36, 0.55] : [0.1, 0.26, 0.45];
+        for (let j = 0; j < 12; j++) { const a = j / 12 * Math.PI * 2, r = rad() * 0.7, sp = Hh * 1.2 * Math.min(1.2, a0), x = (pl.x + Math.cos(a) * r) / W, y = 1 - (pl.y + Math.sin(a) * r) / Hh;
+          if (j % 3) splatVel(x, y, Math.cos(a) * sp * kx, -Math.sin(a) * sp * ky, 0.0004);   // mostly a shove; every 3rd puff leaves a little pearl-coloured wash
+          else splat(x, y, Math.cos(a) * sp * kx, -Math.sin(a) * sp * ky, col.map(v => v * 0.35 * Math.min(1, a0)), 0.0003); }
+        pl.flare = T; pl.flareAmt = Math.min(1.3, a0);
+      }
+      pl.charge = 0;
     }
     if (ptr.moved) {
       ptr.moved = false;
@@ -932,11 +983,35 @@ void main(){
     const x = e.clientX / Math.max(1, innerWidth), y = 1 - e.clientY / Math.max(1, innerHeight);
     if (!ptr.init) { ptr.init = true; ptr.px = x; ptr.py = y; }
     ptr.x = x; ptr.y = y; ptr.moved = true; ptrT = T; lastAct = T; sn.done = false; sn.at = 0;
+    if (pl.drag) { if (!(e.buttons & 1)) onUp(); return; }   // released outside the window
+    setGrab(overPearl(e) ? '1' : '');
   };
+  // pearl grab: only on the orb itself and never on a control, so the chat stays usable
+  const NO_GRAB = 'button,a,input,textarea,select,[contenteditable],[role="button"],[role="textbox"],[role="slider"],[role="menuitem"],[draggable="true"]';
+  function overPearl(e) {
+    if (!gl || !vel || styleEl.disabled || cl.ph === 'hidden' || visAt(pl.x, pl.y) < 0.3) return false;
+    if (e.target?.closest?.(NO_GRAB)) return false;
+    return Math.hypot(e.clientX - pl.x, e.clientY - pl.y) < Math.max(16, rad() * 0.85);
+  }
+  const setGrab = (v) => { const de = document.documentElement; if (v) de.setAttribute('data-cs-grab', v); else de.removeAttribute('data-cs-grab'); };
   const onDown = (e) => {
     if (!gl || !vel || styleEl.disabled) return;
+    if (e.button === 0 && overPearl(e)) {   // pick the pearl up (out of the dragon's mouth too)
+      if (pl.held) { pl.held = 0; pl.caught = T + 1; }
+      pl.drag = true; pl.vx = pl.vy = 0; pl.thrown = -9; sn.done = true; setGrab('2'); lastAct = T; return;
+    }
     startBreath(e.clientX, e.clientY, 1.3); lastAct = T;
   };
+  const onUp = () => {
+    if (!pl.drag) return;
+    pl.drag = false; setGrab('');
+    const v = Math.hypot(pl.vx, pl.vy), cap = Hh * 3;
+    if (v > cap) { pl.vx *= cap / v; pl.vy *= cap / v; }
+    if (v > Hh * 0.35) { pl.thrown = T; pl.caught = T - 1; }   // a real throw: the dragon fetches (catchable after 0.5 s)
+    const m = Math.min(W, Hh) * 0.16;   // settle about where it slides to
+    pl.hx = clamp(pl.x + pl.vx / 1.3, m, W - m); pl.hy = clamp(pl.y + pl.vy / 1.3, m, Hh - m); pl.nextHome = T + 9;
+  };
+  const noSelect = (e) => { if (pl.drag) e.preventDefault(); };
   function clearDye() {
     for (const t of [dye.a, dye.b]) { gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb); gl.viewport(0, 0, t.w, t.h); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
   }
@@ -973,15 +1048,19 @@ void main(){
     checkBusy(); busyTimer = setInterval(() => { checkBusy(); tagBand(); }, 500);
     addEventListener('pointermove', onMove, { passive: true });
     addEventListener('pointerdown', onDown, { passive: true });
+    addEventListener('pointerup', onUp, { passive: true }); addEventListener('pointercancel', onUp, { passive: true }); addEventListener('blur', onUp);
+    addEventListener('mousedown', noSelect, true); addEventListener('selectstart', noSelect, true);
     addEventListener('resize', resize);
     start();
     // debug: advance n frames and snapshot (works while hidden). opts: busy, dark (preview palette), breathe [x,y] css px
     window.__claudeSkinRoll = () => [+dg.roll.toFixed(2), dg.rollT];
-    window.__claudeSkinDbg = () => ({ mode: dg.mode, breath: +dg.breath.toFixed(2), head: [Math.round(dg.hx), Math.round(dg.hy)], pearl: [Math.round(pl.x), Math.round(pl.y)], sniffAt: sn.at && +(T - sn.at).toFixed(2), sniffDone: sn.done, cloud: cl.ph, fade: +cl.fade.toFixed(2), headVis: +visAt(dg.hx, dg.hy).toFixed(2) });
+    window.__claudeSkinDbg = () => ({ mode: dg.mode, breath: +dg.breath.toFixed(2), head: [Math.round(dg.hx), Math.round(dg.hy)], pearl: [Math.round(pl.x), Math.round(pl.y)], sniffAt: sn.at && +(T - sn.at).toFixed(2), sniffDone: sn.done, cloud: cl.ph, fade: +cl.fade.toFixed(2), headVis: +visAt(dg.hx, dg.hy).toFixed(2), held: pl.held ? +(pl.held - T).toFixed(1) : 0, charge: +pl.charge.toFixed(2), flare: +(T - pl.flare).toFixed(2), jaw: +dg.jaw.toFixed(2) });
     window.__claudeSkinStep = (n = 1, opts = {}) => {
       if (opts.busy != null) busy = opts.busy;
       if (opts.dark != null && opts.dark !== dark) { dark = opts.dark; clearDye(); }
       if (opts.cloud) cl.next = T;
+      if (opts.throw) { const [x, y, vx, vy] = opts.throw; pl.drag = false; pl.x = x; pl.y = y; pl.vx = vx; pl.vy = vy; pl.thrown = T; pl.caught = T - 1; pl.hx = clamp(x + vx / 1.3, 50, W - 50); pl.hy = clamp(y + vy / 1.3, 50, Hh - 50); pl.nextHome = T + 9; }
+      if (opts.roar) { dg.roar = T + 2.5; pl.caught = T + 2.5; }
       if (opts.breathe) startBreath(opts.breathe[0], opts.breathe[1], 1.3);
       if (opts.ptr) { ptr.init = true; ptr.x = ptr.px = opts.ptr[0] / W; ptr.y = ptr.py = 1 - opts.ptr[1] / Hh; ptrT = T - (opts.idle || 0); sn.done = false; sn.at = 0; }
       for (let i = 0; i < n; i++) { T += 1 / 30; inputs(1 / 30); flushDye(); drawMask(); uploadMask(); step(1 / 30); }
@@ -1028,12 +1107,14 @@ void main(){
       mounted = false; stop();
       clearInterval(clearTimer); clearInterval(busyTimer);
       removeEventListener('pointermove', onMove); removeEventListener('pointerdown', onDown); removeEventListener('resize', resize);
+      removeEventListener('pointerup', onUp); removeEventListener('pointercancel', onUp); removeEventListener('blur', onUp);
+      removeEventListener('mousedown', noSelect, true); removeEventListener('selectstart', noSelect, true);
       if (gl) { freeTargets(); gl.deleteTexture(maskTex); if (calTex) gl.deleteTexture(calTex); gl.getExtension('WEBGL_lose_context')?.loseContext(); gl = null; }
       styleEl.remove(); backdrop.remove();
     }
     clearTimeout(toastT);
     const de = document.documentElement;
-    de.removeAttribute('data-cs-n'); de.removeAttribute('data-cs-dark');
+    de.removeAttribute('data-cs-n'); de.removeAttribute('data-cs-dark'); de.removeAttribute('data-cs-grab');
     de.style.removeProperty('--cs-ad'); de.style.removeProperty('--cs-al');
     for (const el of document.querySelectorAll('[data-cs-clear]')) el.removeAttribute('data-cs-clear');
     bandObs?.disconnect(); bandObs = null; bandRow = null; bandStyle?.remove(); bandStyle = null;
